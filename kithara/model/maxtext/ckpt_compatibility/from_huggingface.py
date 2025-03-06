@@ -108,7 +108,7 @@ def load_hf_weights_into_maxtext_model(
 
     print(f"-> Downloading HuggingFace weights ({preset_handle})...")
     start_time = time.time()
-    snapshot_download(repo_id=preset_handle.removeprefix("hf://"))
+    #snapshot_download(repo_id=preset_handle.removeprefix("hf://"))
     print(f"✅ Downloaded HuggingFace weights in {time.time() - start_time}s")
 
     with MaxTextSafetensorLoader(preset_handle) as loader:

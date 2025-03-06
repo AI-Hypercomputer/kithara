@@ -13,8 +13,8 @@
 # limitations under the License.
 
 # Model parameters
-model_handle: "hf://google/gemma-2-2b"
-tokenizer_handle: "hf://google/gemma-2-2b"
+model_handle: "gs://ricliu-gemma2-2b" #"hf://google/gemma-2-2b"
+tokenizer_handle: "gs://ricliu-gemma2-2b" #"hf://google/gemma-2-2b"
 seq_len: 4096
 precision: "mixed_bfloat16"
 
@@ -27,4 +27,4 @@ max_eval_samples: 50
 learning_rate: 5e-05
 
 # Output parameters
-model_output_dir: "gs://bucket_name/ckpt/"
+model_output_dir: "gs://ricliu-kithara-results/ckpt/"
