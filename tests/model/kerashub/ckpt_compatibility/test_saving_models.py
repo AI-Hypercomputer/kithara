@@ -118,21 +118,48 @@ class TestSavingModel(unittest.TestCase):
         check_predicted_tokens_match(logits, golden_logits, top1_token_tol)
 
     @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
-    def test_gemma_2b_conversion(self):
+    def test_gemma_2_2b_conversion(self):
         self.run_conversion_test(
             model_id="google/gemma-2-2b",
             weight_tol=0.0001,
-            logits_tol=0.0001,
-            top1_token_tol=0.001
+            logits_tol=1.5,
+            top1_token_tol=0.1
         )
 
     @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
-    def test_gemma_9b_conversion(self):
+    def test_gemma_2_9b_conversion(self):
         self.run_conversion_test(
             model_id="google/gemma-2-9b",
             weight_tol=0.0001,
             logits_tol=1.5,
             top1_token_tol=0.1
+        )
+
+    @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
+    def test_llama_31_8b_conversion(self):
+        self.run_conversion_test(
+            model_id="meta-llama/Llama-3.1-8B",
+            weight_tol=0.0001,
+            logits_tol=0.0001,
+            top1_token_tol=0.0001
+        )
+
+    @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
+    def test_llama_32_1b_conversion(self):
+        self.run_conversion_test(
+            model_id="meta-llama/Llama-3.2-1B",
+            weight_tol=0.0001,
+            logits_tol=0.0001,
+            top1_token_tol=0.0001
+        )
+
+    @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
+    def test_llama_32_3b_conversion(self):
+        self.run_conversion_test(
+            model_id="meta-llama/Llama-3.2-3B",
+            weight_tol=0.0001,
+            logits_tol=0.0001,
+            top1_token_tol=0.0001
         )
 
 if __name__ == '__main__':

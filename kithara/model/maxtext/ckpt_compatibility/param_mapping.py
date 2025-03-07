@@ -520,18 +520,6 @@ def LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN(config, scan_layers=False, saving_to_hf=
         else:
             return from_hf()
 
-    def scale_rmsnorm_layer(input_tensor, target_shape):
-        def to_hf():
-            return (input_tensor - 1.0).reshape(target_shape)
-
-        def from_hf():
-            return (input_tensor + 1.0).reshape(target_shape)
-
-        if saving_to_hf:
-            return to_hf()
-        else:
-            return from_hf()
-
     def adjust_rope(input_tensor, target_shape):
         def unpermute_from_match_maxtext_rope(arr):
             """Convert from HF's concatenated layout to MaxText's interleaved layout"""
@@ -559,7 +547,6 @@ def LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN(config, scan_layers=False, saving_to_hf=
 
         
     def reshape_kernel(input_tensor, target_shape):
-        print(f'input_tensor shape: {input_tensor.shape}, target_tensor shape: {target_shape}')
         def to_hf():
             flipped_target_shape = np.flip(np.array(target_shape))
             return input_tensor.reshape(flipped_target_shape).transpose()
@@ -596,8 +583,6 @@ def LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN(config, scan_layers=False, saving_to_hf=
             hook_fns[f"params-decoder-layers_{layer_idx}-mlp-wi_0-kernel"] = reshape_kernel 
             hook_fns[f"params-decoder-layers_{layer_idx}-mlp-wi_1-kernel"] = reshape_kernel 
             hook_fns[f"params-decoder-layers_{layer_idx}-mlp-wo-kernel"] = reshape_kernel 
-             
-
     return hook_fns
 
 PARAM_MAPPING = {
@@ -616,7 +601,5 @@ HOOK_FNS = {
     supported_models.LLAMA31_8B: LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN,
     supported_models.LLAMA31_70B: LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN,
     supported_models.LLAMA31_405B: LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN,
-    supported_models.LLAMA32_1B: LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN,
-    supported_models.LLAMA32_3B: LLAMA31_MAXTEXT_TO_HF_PARAM_HOOK_FN,
 }
 

@@ -66,10 +66,7 @@ class TextCompletionDataset(Dataset):
         ), "Either a HF Tokenizer or a HF tokenizer handle must be provided"
 
         self.max_seq_len = max_seq_len
-        self.tokenizer = (
-            initialize_tokenizer(tokenizer_handle) if tokenizer is None else tokenizer
-        )
-        self.tokenizer.pad_token = "<pad>"
+        self.tokenizer = initialize_tokenizer(tokenizer_handle, tokenizer)
         self.column_mapping = {"text": "text"}
         self._model_type = model_type
         self.custom_formatting_fn = custom_formatting_fn

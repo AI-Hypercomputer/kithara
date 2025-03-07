@@ -54,7 +54,8 @@ def check_arrays_match(arrayA, arrayB, atol=0.01):
     # If both are now torch tensors
     if isinstance(arrayA, torch.Tensor):
         max_diff = torch.max(torch.abs(arrayA-arrayB))
-        print("Maximum absolution difference:", max_diff)
+        if max_diff>0:
+            print("Maximum absolution difference:", max_diff)
         if not torch.allclose(arrayA, arrayB, atol=atol):
             is_close = torch.isclose(arrayB, arrayA, atol=atol)
             mismatch_indices = ~is_close
@@ -72,7 +73,7 @@ def check_arrays_match(arrayA, arrayB, atol=0.01):
             print(f"Number of mismatch elements in {arrayB.shape}", len(arrayB[is_close_idx==False]))
             print(arrayA[is_close_idx==False])
             print(arrayB[is_close_idx==False])
-            raise AssertionError(f"Failed to match arrays.")
+            raise AssertionError(f"Failed to match arrays with atol={atol}.")
     
 def check_predicted_tokens_match(logits_a, logits_b, tolerance=0.05):
     """Compares the top predicted tokens from each set of logits and ensures their 
@@ -140,7 +141,9 @@ def get_logits_comparison_metrics(logitsA, logitsB):
     probs_B = F.softmax(logitsB, dim=-1)
 
     # Calculate metrics
-    kl_div = F.kl_div(torch.log(probs_B), probs_A, reduction='sum', log_target=False)
+    kl_div = F.kl_div(torch.log(probs_B), probs_A, reduction='none', log_target=False)
+    max_kl_div = torch.max(kl_div.sum(dim=-1))
+
     max_abs_diff = torch.abs(probs_A - probs_B).max()
 
     # Calculate top-k agreement metrics
@@ -157,9 +160,9 @@ def get_logits_comparison_metrics(logitsA, logitsB):
     disagreement_top1 = torch.mean((
         (torch.abs(ranking_B_top1 - ranking_A_top1) > 0).sum(dim=1) > 0
     ).float())
-
+        
     metrics = {
-        "max_kl_div": float(torch.max(kl_div)),
+        "max_kl_div": float(max_kl_div),
         "abs_diff": float(max_abs_diff),
         "disagreement_top5": float(disagreement_top5),
         "disagreement_top1": float(disagreement_top1),

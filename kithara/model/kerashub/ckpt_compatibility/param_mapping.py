@@ -1,22 +1,23 @@
 """
- Copyright 2025 Google LLC
+Copyright 2025 Google LLC
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-      https://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- """
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 from kithara.model import supported_models
 import jax
 import numpy as np
+
 
 def GEMMA2_KERASHUB_TO_HF_PARAM_MAPPING(config):
     """Returns mapping between KerasHub and HuggingFace Gemma2 weight paths.
@@ -30,19 +31,19 @@ def GEMMA2_KERASHUB_TO_HF_PARAM_MAPPING(config):
             - Values are either:
                 - Single strings (HF parameter path) for unscanned parameters
                 - Lists of strings (HF parameter paths) for stacked layers when scan_layers=True
-        
-    How to obtain this mapping for a new model: 
+
+    How to obtain this mapping for a new model:
         ```
         model = KerasHubModel.from_preset(
             "hf://google/gemma-2-2b"
         )
 
-        # print out all keras model weights 
+        # print out all keras model weights
 
-        for v in model.weights: 
+        for v in model.weights:
             print(v.path)
 
-        # print out all modules of the huggingface model 
+        # print out all modules of the huggingface model
 
         from transformers import AutoModelForCausalLM
         model = AutoModelForCausalLM.from_pretrained("google/gemma-2-2b")
@@ -74,6 +75,7 @@ def GEMMA2_KERASHUB_TO_HF_PARAM_MAPPING(config):
         }
         mapping = {**mapping, **layer_mapping}
     return mapping
+
 
 def GEMMA2_KERASHUB_TO_HF_PARAM_HOOK_FN(config):
     """Creates parameter transformation functions for converting between KerasHub and
@@ -130,10 +132,10 @@ def GEMMA2_KERASHUB_TO_HF_PARAM_HOOK_FN(config):
     def out_proj_reshape(input_tensor, target_shape):
         target_shape = (target_shape[1], target_shape[0])
         return input_tensor.reshape(target_shape).transpose()
-    
+
     def qkv_proj_reshape(input_tensor, target_shape):
         return input_tensor.transpose(0, 2, 1).reshape(target_shape)
-    
+
     mapping = {
         "token_embedding/embeddings": reshape_embedding_layer,
     }
@@ -150,6 +152,7 @@ def GEMMA2_KERASHUB_TO_HF_PARAM_HOOK_FN(config):
         }
     return mapping
 
+
 def LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING(config):
     """Returns mapping between KerasHub and HuggingFace Gemma2 weight paths.
 
@@ -162,8 +165,8 @@ def LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING(config):
             - Values are either:
                 - Single strings (HF parameter path) for unscanned parameters
                 - Lists of strings (HF parameter paths) for stacked layers when scan_layers=True
-        
-    How to obtain this mapping for a new model: 
+
+    How to obtain this mapping for a new model:
         ```
         model = KerasHubModel.from_preset(
             "hf://google/gemma-2-2b",
@@ -172,12 +175,12 @@ def LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING(config):
             ),
         )
 
-        # print out all keras model weights 
+        # print out all keras model weights
 
-        for v in model.weights: 
+        for v in model.weights:
             print(v.path)
 
-        # print out all modules of the huggingface model 
+        # print out all modules of the huggingface model
 
         from transformers import AutoModelForCausalLM
         model = AutoModelForCausalLM.from_pretrained("google/gemma-2-2b")
@@ -196,18 +199,21 @@ def LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING(config):
     }
 
     for layer_idx in range(nlayers):
-        layer_mapping.update({
-            f"transformer_layer_{layer_idx}/self_attention/query/kernel": f"model.layers.{layer_idx}.self_attn.q_proj.weight",
-            f"transformer_layer_{layer_idx}/self_attention/key/kernel": f"model.layers.{layer_idx}.self_attn.k_proj.weight",
-            f"transformer_layer_{layer_idx}/self_attention/value/kernel": f"model.layers.{layer_idx}.self_attn.v_proj.weight",
-            f"transformer_layer_{layer_idx}/self_attention/attention_output/kernel": f"model.layers.{layer_idx}.self_attn.o_proj.weight",
-            f"transformer_layer_{layer_idx}/feedforward_intermediate_dense/kernel": f"model.layers.{layer_idx}.mlp.up_proj.weight",
-            f"transformer_layer_{layer_idx}/feedforward_gate_dense/kernel": f"model.layers.{layer_idx}.mlp.gate_proj.weight",
-            f"transformer_layer_{layer_idx}/feedforward_output_dense/kernel": f"model.layers.{layer_idx}.mlp.down_proj.weight",
-            f"transformer_layer_{layer_idx}/self_attention_layernorm/scale": f"model.layers.{layer_idx}.input_layernorm.weight",
-            f"transformer_layer_{layer_idx}/feedforward_layernorm/scale": f"model.layers.{layer_idx}.post_attention_layernorm.weight",
-        })
+        layer_mapping.update(
+            {
+                f"transformer_layer_{layer_idx}/self_attention/query/kernel": f"model.layers.{layer_idx}.self_attn.q_proj.weight",
+                f"transformer_layer_{layer_idx}/self_attention/key/kernel": f"model.layers.{layer_idx}.self_attn.k_proj.weight",
+                f"transformer_layer_{layer_idx}/self_attention/value/kernel": f"model.layers.{layer_idx}.self_attn.v_proj.weight",
+                f"transformer_layer_{layer_idx}/self_attention/attention_output/kernel": f"model.layers.{layer_idx}.self_attn.o_proj.weight",
+                f"transformer_layer_{layer_idx}/feedforward_intermediate_dense/kernel": f"model.layers.{layer_idx}.mlp.up_proj.weight",
+                f"transformer_layer_{layer_idx}/feedforward_gate_dense/kernel": f"model.layers.{layer_idx}.mlp.gate_proj.weight",
+                f"transformer_layer_{layer_idx}/feedforward_output_dense/kernel": f"model.layers.{layer_idx}.mlp.down_proj.weight",
+                f"transformer_layer_{layer_idx}/self_attention_layernorm/scale": f"model.layers.{layer_idx}.input_layernorm.weight",
+                f"transformer_layer_{layer_idx}/feedforward_layernorm/scale": f"model.layers.{layer_idx}.post_attention_layernorm.weight",
+            }
+        )
     return layer_mapping
+
 
 def LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN(config):
     """Creates parameter transformation functions for converting between KerasHub and
@@ -256,20 +262,11 @@ def LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN(config):
     nlayers = config["num_hidden_layers"]
 
     def reshape_kernel(input_tensor, target_shape):
-        def to_hf():
-            flipped_target_shape = np.flip(np.array(target_shape))
-            return input_tensor.reshape(flipped_target_shape).transpose()
-
-        return to_hf
-
-    
-
-    
+        flipped_target_shape = np.flip(np.array(target_shape))
+        return input_tensor.reshape(flipped_target_shape).transpose()
 
     def transpose(input_tensor, target_shape):
         return input_tensor.transpose()
-
-    
 
     mapping = {}
     mapping = {
@@ -278,8 +275,12 @@ def LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN(config):
     for layer_idx in range(nlayers):
         mapping = {
             **mapping,
-            f"transformer_layer_{layer_idx}/self_attention/query/kernel": [reshape_kernel, ],
-            f"transformer_layer_{layer_idx}/self_attention/key/kernel": [reshape_kernel, ],
+            f"transformer_layer_{layer_idx}/self_attention/query/kernel": [
+                reshape_kernel,
+            ],
+            f"transformer_layer_{layer_idx}/self_attention/key/kernel": [
+                reshape_kernel,
+            ],
             f"transformer_layer_{layer_idx}/self_attention/key/kernel": reshape_kernel,
             f"transformer_layer_{layer_idx}/self_attention/value/kernel": reshape_kernel,
             f"transformer_layer_{layer_idx}/self_attention/attention_output/kernel": reshape_kernel,
@@ -299,6 +300,8 @@ PARAM_MAPPING = {
     supported_models.LLAMA31_8B: LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING,
     supported_models.LLAMA31_70B: LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING,
     supported_models.LLAMA31_405B: LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING,
+    supported_models.LLAMA32_3B: LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING,
+    supported_models.LLAMA32_1B: LLAMA31_KERASHUB_TO_HF_PARAM_MAPPING,
 }
 
 HOOK_FNS = {
@@ -308,9 +311,11 @@ HOOK_FNS = {
     supported_models.LLAMA31_8B: LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN,
     supported_models.LLAMA31_70B: LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN,
     supported_models.LLAMA31_405B: LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN,
+    supported_models.LLAMA32_3B: LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN,
+    supported_models.LLAMA32_1B: LLAMA31_KERASHUB_TO_HF_PARAM_HOOK_FN,
 }
 
-LORA_A_SUFFIX = "lora_kernel_a" 
+LORA_A_SUFFIX = "lora_kernel_a"
 LORA_B_SUFFIX = "lora_kernel_b"
 
 LORA_BASE_SUFFIX = "kernel"

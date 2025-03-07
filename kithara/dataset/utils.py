@@ -20,14 +20,32 @@ import numpy as np
 from functools import lru_cache
 
 @lru_cache(maxsize=5) 
-def initialize_tokenizer(tokenizer_handle):
-    """Creates an HuggingFace AutoTokenizer with the tokenizer_handle."""
-    if tokenizer_handle.startswith("hf://"):
-        tokenizer_handle = tokenizer_handle.removeprefix("hf://")
-    try:
-        tokenizer = HFTokenizer.from_pretrained(tokenizer_handle)
-    except ValueError as e:
-        print("Tokenizer handle is not a valid HuggingFace tokenizer handle.")
+def initialize_tokenizer(tokenizer_handle, tokenizer=None):
+    """
+    Creates an HuggingFace AutoTokenizer with the tokenizer_handle.
+    Try to specify a pad_token for the tokenizer if not specified.
+    """
+    if tokenizer is None:
+        if tokenizer_handle.startswith("hf://"):
+            tokenizer_handle = tokenizer_handle.removeprefix("hf://")
+        try:
+            tokenizer = HFTokenizer.from_pretrained(tokenizer_handle)
+        except ValueError as e:
+            print(f"Tokenizer handle {tokenizer_handle} is not a valid HuggingFace tokenizer handle.")
+    
+    # Llama tokenizers don't have a default pad_token, we must add it here
+    if tokenizer.pad_token is None: 
+        # Gemma 2 
+        if tokenizer.get_vocab().get("<pad>") is not None: 
+            tokenizer.add_special_tokens({'pad_token': '<pad>'})
+        # Llama 3 uses "<|finetune_right_pad_id|>"
+        elif tokenizer.get_vocab().get("<|finetune_right_pad_id|>") is not None: 
+            tokenizer.add_special_tokens({'pad_token': '<|finetune_right_pad_id|>'})
+        # Llama 2 doesn't have a padding token, fall back to "<unk>"
+        elif tokenizer.get_vocab().get("<unk>") is not None: 
+            tokenizer.add_special_tokens({'pad_token': '<unk>'})
+        else:
+            print("WARNING: Tokenizer doesn't have the attribute pad_token")
     return tokenizer
 
 

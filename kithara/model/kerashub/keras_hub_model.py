@@ -14,12 +14,10 @@
  limitations under the License.
  """
 
-from typing import Optional, Dict, List, Union
+from typing import Optional, Dict
 import numpy as np
-from transformers import AutoTokenizer
 from keras_hub.models import CausalLM
 from kithara.distributed.sharding import ShardingStrategy, PredefinedShardingStrategy
-from kithara.dataset.utils import initialize_tokenizer
 from kithara.model.hf_compatibility import get_model_name_from_preset_handle
 from kithara.model.model import (
     Model,

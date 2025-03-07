@@ -14,7 +14,7 @@
  limitations under the License.
  """
 
-from kithara.distributed.sharding.models import GEMMA_LAYOUT
+from kithara.distributed.sharding.models import GEMMA_LAYOUT, LLAMA_LAYOUT
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -33,6 +33,11 @@ class Layout:
             supported_models.GEMMA2_2B: lambda: Layout.gemma(),
             supported_models.GEMMA2_9B: lambda: Layout.gemma(),
             supported_models.GEMMA2_27B: lambda: Layout.gemma(),
+            supported_models.LLAMA31_8B: lambda: Layout.llama(),
+            supported_models.LLAMA31_70B: lambda: Layout.llama(),
+            supported_models.LLAMA31_405B: lambda: Layout.llama(),
+            supported_models.LLAMA32_1B: lambda: Layout.llama(),
+            supported_models.LLAMA32_3B: lambda: Layout.llama(),
         }
 
     def __class_getitem__(cls, key: str):
@@ -45,3 +50,7 @@ class Layout:
     @classmethod
     def gemma(cls):
         return GEMMA_LAYOUT
+    
+    @classmethod
+    def llama(cls):
+        return LLAMA_LAYOUT

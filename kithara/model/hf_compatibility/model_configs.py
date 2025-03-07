@@ -1,18 +1,18 @@
 """
- Copyright 2025 Google LLC
+Copyright 2025 Google LLC
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-      https://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- """
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 import transformers
 from keras_hub.src.utils.preset_utils import load_json
@@ -64,8 +64,6 @@ llama31_8b_config = transformers.LlamaConfig(
     rms_norm_eps=1e-5,
     bos_token_id=128000,
     eos_token_id=128001,
-
-    # Additional attributes from your JSON:
     attention_bias=False,
     attention_dropout=0.0,
     hidden_act="silu",
@@ -96,7 +94,16 @@ llama31_70b_config = transformers.LlamaConfig(
     max_position_embeddings=131072,
     rms_norm_eps=1e-05,
     bos_token_id=128000,
-    eos_token_id=128001,
+    eos_token_id=[128001, 128008, 128009],
+    rope_scaling={
+        "factor": 8.0,
+        "high_freq_factor": 4.0,
+        "low_freq_factor": 1.0,
+        "original_max_position_embeddings": 8192,
+        "rope_type": "llama3",
+    },
+    rope_theta=500000.0,
+    tie_word_embeddings=False,
 )
 
 llama31_405b_config = transformers.LlamaConfig(
@@ -124,8 +131,6 @@ llama32_1b_config = transformers.LlamaConfig(
     rms_norm_eps=1e-5,
     bos_token_id=128000,
     eos_token_id=128001,
-
-    # Additional attributes from your JSON:
     attention_bias=False,
     attention_dropout=0.0,
     hidden_act="silu",
@@ -138,11 +143,10 @@ llama32_1b_config = transformers.LlamaConfig(
         "low_freq_factor": 1.0,
         "high_freq_factor": 4.0,
         "original_max_position_embeddings": 8192,
-        "rope_type": "llama3"
+        "rope_type": "llama3",
     },
     rope_theta=500000.0,
     tie_word_embeddings=True,
-    use_cache=True,
 )
 
 llama32_3b_config = transformers.LlamaConfig(
@@ -156,8 +160,6 @@ llama32_3b_config = transformers.LlamaConfig(
     rms_norm_eps=1e-5,
     bos_token_id=128000,
     eos_token_id=128001,
-
-    # Additional attributes from your JSON:
     attention_bias=False,
     attention_dropout=0.0,
     hidden_act="silu",
@@ -170,7 +172,7 @@ llama32_3b_config = transformers.LlamaConfig(
         "low_freq_factor": 1.0,
         "high_freq_factor": 4.0,
         "original_max_position_embeddings": 8192,
-        "rope_type": "llama3"
+        "rope_type": "llama3",
     },
     rope_theta=500000.0,
     tie_word_embeddings=True,
@@ -198,8 +200,13 @@ def get_model_name_from_preset_handle(preset_handle):
             return supported_models.LLAMA31_70B
         elif n_layers == 126:
             return supported_models.LLAMA31_405B
+        elif n_layers == 16:
+            return supported_models.LLAMA32_1B
+        elif n_layers == 28:
+            return supported_models.LLAMA32_3B
     print(f"model type {model_type} is currently unsupported.")
     return None
+
 
 MODEL_CONFIGS = {
     supported_models.GEMMA2_2B: gemma2_2b_config,
@@ -208,4 +215,6 @@ MODEL_CONFIGS = {
     supported_models.LLAMA31_8B: llama31_8b_config,
     supported_models.LLAMA31_70B: llama31_70b_config,
     supported_models.LLAMA31_405B: llama31_405b_config,
+    supported_models.LLAMA32_1B: llama32_1b_config,
+    supported_models.LLAMA32_3B: llama32_3b_config,
 }

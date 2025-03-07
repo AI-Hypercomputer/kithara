@@ -1,18 +1,18 @@
 """
- Copyright 2025 Google LLC
+Copyright 2025 Google LLC
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-      https://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- """
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 import keras
 import jax
@@ -187,9 +187,7 @@ class Model(ABC, ModelValidationMixin):
             max_length is not None
         ), "max_length must be provided to generate() when inputs are strings."
 
-        tokenizer = (
-            initialize_tokenizer(tokenizer_handle) if tokenizer is None else tokenizer
-        )
+        tokenizer = initialize_tokenizer(tokenizer_handle, tokenizer)
 
         tokens: Dict[str, np.ndarray] = tokenizer(
             prompts,
@@ -274,11 +272,7 @@ class Model(ABC, ModelValidationMixin):
         if stop_token_ids == "auto":
             stop_token_ids = []
             if tokenizer or tokenizer_handle:
-                tokenizer = (
-                    initialize_tokenizer(tokenizer_handle)
-                    if tokenizer is None
-                    else tokenizer
-                )
+                tokenizer = initialize_tokenizer(tokenizer_handle, tokenizer)
 
                 token_attributes = [
                     "end_token_id",
@@ -298,11 +292,7 @@ class Model(ABC, ModelValidationMixin):
             strip_prompt=strip_prompt,
         )
         if return_decoded:
-            tokenizer = (
-                initialize_tokenizer(tokenizer_handle)
-                if tokenizer is None
-                else tokenizer
-            )
+            tokenizer = initialize_tokenizer(tokenizer_handle, tokenizer)
 
             text = [
                 tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)

@@ -32,7 +32,6 @@ Usage:
 import unittest
 import os
 from kithara import KerasHubModel
-from kithara.utils.gcs_utils import find_cache_root_dir
 from tests.model.test_prompt import TEST_PROMPT
 import tests.model.utils as utils
 from tests.model.utils import check_arrays_match, check_predicted_tokens_match
@@ -102,7 +101,7 @@ class TestLoadingModels(unittest.TestCase):
             )
 
     @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
-    def test_gemma_2b(self):
+    def test_gemma_2_2b(self):
         self._test_model_correctness(
             model_id="google/gemma-2-2b",
             logits_tol=0.5,
@@ -110,9 +109,33 @@ class TestLoadingModels(unittest.TestCase):
         )
     
     @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
-    def test_gemma_9b(self):
+    def test_gemma_2_9b(self):
         self._test_model_correctness(
             model_id="google/gemma-2-9b",
+            logits_tol=1.0,
+            top1_token_tol=0.2
+        )
+        
+    @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
+    def test_llama_31_8b(self):
+        self._test_model_correctness(
+            model_id="meta-llama/Llama-3.1-8B",
+            logits_tol=2.5,
+            top1_token_tol=0.2
+        )
+
+    @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
+    def test_llama_32_1b(self):
+        self._test_model_correctness(
+            model_id="meta-llama/Llama-3.2-1B",
+            logits_tol=2.0,
+            top1_token_tol=0.3
+        )
+
+    @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
+    def test_llama_32_3b(self):
+        self._test_model_correctness(
+            model_id="meta-llama/Llama-3.2-3B",
             logits_tol=1.0,
             top1_token_tol=0.2
         )

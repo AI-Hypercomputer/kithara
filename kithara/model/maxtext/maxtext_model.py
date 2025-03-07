@@ -166,9 +166,8 @@ class MaxTextModel(Model, MaxTextConversionMixin):
         # MaxText requires max length to be a multiple of 128
         max_length = ((max_length + 127) // 128) * 128
 
-        tokenizer = (
-            initialize_tokenizer(tokenizer_handle) if tokenizer is None else tokenizer
-        )
+        tokenizer = initialize_tokenizer(tokenizer_handle, tokenizer)
+        
         tokens: Dict[str, np.ndarray] = tokenizer(
             prompts,
             max_length=max_length,

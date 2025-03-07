@@ -106,7 +106,7 @@ class TestLoadingModels(unittest.TestCase):
         )
     
     @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
-    def test_gemma_2b(self):
+    def test_gemma_2_2b(self):
         self._test_model_compatibility(
             model_id="google/gemma-2-2b",
             logits_tol=0.5,
@@ -114,12 +114,21 @@ class TestLoadingModels(unittest.TestCase):
         )
     
     @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
-    def test_gemma_7b(self):
+    def test_gemma_2_7b(self):
         self._test_model_compatibility(
             model_id="google/gemma-2-9b",
             logits_tol=1.0,
             top1_token_tol=0.02
         )
+
+    @unittest.skipIf(int(os.getenv('RUN_SKIPPED_TESTS', 0)) != 1, "Manual Test")
+    def test_llama_31_8b(self):
+        self._test_model_compatibility(
+            model_id="meta-llama/Llama-3.1-8B",
+            logits_tol=0.1,
+            top1_token_tol=0.01
+        )
+
 
 
 if __name__ == '__main__':
