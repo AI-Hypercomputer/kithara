@@ -38,6 +38,9 @@ class Layout:
             supported_models.LLAMA31_405B: lambda: Layout.llama(),
             supported_models.LLAMA32_1B: lambda: Layout.llama(),
             supported_models.LLAMA32_3B: lambda: Layout.llama(),
+            supported_models.LLAMA2_7B: lambda: Layout.llama(),
+            supported_models.LLAMA2_13B: lambda: Layout.llama(),
+            supported_models.LLAMA2_70B: lambda: Layout.llama(),
         }
 
     def __class_getitem__(cls, key: str):
