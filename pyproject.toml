@@ -44,7 +44,7 @@ dependencies = [
         "omegaconf",
         # Jetstream dependencies
         "seqio",
-        "setuptools==61.0"
+        "setuptools==70.0.0"
 ]
 
 [project.optional-dependencies]
