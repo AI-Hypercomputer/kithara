@@ -109,10 +109,12 @@ class MaxTextConversionMixin:
         def maxtext_wrapper(
             module: Any, inputs: List[Union[np.ndarray, jnp.ndarray]], training: bool
         ) -> Any:
+            print("inside maxtext wrapper")
             tokens, positions, segment_ids = inputs
             model_mode = "train"
             segment_ids = segment_ids if training else None
             with mesh, flax.linen.partitioning.axis_rules(config.logical_axis_rules):
+                print("running forward call")
                 return module(
                     tokens,
                     positions,
@@ -276,6 +278,27 @@ class MaxTextConversionMixin:
         """
         params = {}
         for v in model.variables:
+            variable_name = v.path
+            nest_keys = variable_name.split("/")[-1].split("-")
+            if nest_keys[0] != "params":
+                continue
+                
+            current = params
+            for key in nest_keys[:-1]:  # All keys except the last one
+                current = current.setdefault(key, {})
+            current[nest_keys[-1]] = v.value
+            
+        return params
+
+    def get_maxtext_params_from_variables(variables: "kithara.MaxTextModel") -> dict:
+        """Convert Kithara variables (flat list format) into 
+        MaxText variables (nested dict format). This function 
+        is a simple format converter. It is used for inserting 
+        the current model parameters into MaxText's inference 
+        engine. 
+        """
+        params = {}
+        for v in variables:
             variable_name = v.path
             nest_keys = variable_name.split("/")[-1].split("-")
             if nest_keys[0] != "params":

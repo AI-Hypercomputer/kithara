@@ -1,18 +1,18 @@
 """
- Copyright 2025 Google LLC
+Copyright 2025 Google LLC
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-      https://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- """
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 from kithara.dataset.dataset import Dataset
 from kithara.dataset.packed_dataset import PackedDataset
@@ -36,10 +36,10 @@ class TextCompletionDataset(Dataset):
         column_mapping (Optional[Dict]): Mapping of source column name to expected
             column name ("text")
         model_type (ModelImplementationType | "auto"): Type of model implementation to use.
-            MaxText and KerasHub models expect input formats, the dataset needs to know 
+            MaxText and KerasHub models expect input formats, the dataset needs to know
             which model it is feeding data to. This field can be set to "auto" or a specific
-            model type. Supported mode_type: ModelImplementationType.KERASHUB, 
-            ModelImplementationType.MAXTEXT. When set to "auto", model_type will be inferred 
+            model type. Supported mode_type: ModelImplementationType.KERASHUB,
+            ModelImplementationType.MAXTEXT. When set to "auto", model_type will be inferred
             from the `MODEL_IMPLEMENTATION` global state. `MODEL_IMPLEMENTATION` will be
             automatically set upon model initialization. You should only need to manually
             specify this argument when you are creating a dataset without creating a model.
@@ -79,13 +79,11 @@ class TextCompletionDataset(Dataset):
         # Avoid circular import
         from kithara.model import ModelImplementationType
 
-        if self._model_type=="auto":
-            model_type= global_state.get_global_attribute(
-            "MODEL_IMPLEMENTATION", None
-        )
+        if self._model_type == "auto":
+            model_type = global_state.get_global_attribute("MODEL_IMPLEMENTATION", None)
         else:
             model_type = self._model_type
-        
+
         if model_type not in ModelImplementationType.list_supported_types():
             raise ValueError(
                 "Did you forget to specify model_type during Dataset creation? Please specify model_type or set MODEL_IMPLEMENTATION "
@@ -141,7 +139,9 @@ class TextCompletionDataset(Dataset):
                 "x": {
                     "tokens": input_ids,
                     "segment_ids": attention_mask,
-                    "positions": np.arange(self.max_seq_len, dtype=np.int32)[None, :],
+                    "positions": np.tile(
+                        np.arange(self.max_seq_len, dtype=np.int32), (len(input_ids), 1)
+                    ),
                 },
                 "y": label_ids,
             },
