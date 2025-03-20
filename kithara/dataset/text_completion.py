@@ -36,10 +36,10 @@ class TextCompletionDataset(Dataset):
         column_mapping (Optional[Dict]): Mapping of source column name to expected
             column name ("text")
         model_type (ModelImplementationType | "auto"): Type of model implementation to use.
-            MaxText and KerasHub models expect input formats, the dataset needs to know 
+            MaxText and KerasHub models expect input formats, the dataset needs to know
             which model it is feeding data to. This field can be set to "auto" or a specific
-            model type. Supported mode_type: ModelImplementationType.KERASHUB, 
-            ModelImplementationType.MAXTEXT. When set to "auto", model_type will be inferred 
+            model type. Supported mode_type: ModelImplementationType.KERASHUB,
+            ModelImplementationType.MAXTEXT. When set to "auto", model_type will be inferred
             from the `MODEL_IMPLEMENTATION` global state. `MODEL_IMPLEMENTATION` will be
             automatically set upon model initialization. You should only need to manually
             specify this argument when you are creating a dataset without creating a model.
@@ -85,7 +85,7 @@ class TextCompletionDataset(Dataset):
         )
         else:
             model_type = self._model_type
-        
+
         if model_type not in ModelImplementationType.list_supported_types():
             raise ValueError(
                 "Did you forget to specify model_type during Dataset creation? Please specify model_type or set MODEL_IMPLEMENTATION "

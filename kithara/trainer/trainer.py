@@ -21,12 +21,15 @@ import keras
 import time
 import sys
 import jax
+import optax
+from dataclasses import dataclass
 from kithara.distributed.sharding.utils import (
     entire_tree_is_sharded,
     is_not_sharded_and_is_large,
     get_size_in_mb,
     get_size_in_gb,
 )
+from kithara.optimizers import KitharaOptimizer, convert_to_kithara_optimizer
 from kithara.model import Model
 from kithara.dataset import Dataloader
 from kithara.callbacks import Profiler, Checkpointer
@@ -44,7 +47,7 @@ class Trainer:
 
     Attributes:
         model (kithara.Model): The model to be trained or evaluated.
-        optimizer (keras.Optimizer): The optimizer used for training.
+        optimizer (keras.Optimizer | OptaxOptimizerConfig): The optimizer used for training.
         train_dataloader (kithara.Dataloader): A dataloader that provides training batches.
         eval_dataloader (kithara.Dataloader, optional): A dataloader that provides evaluation batches.
             Defaults to None.
@@ -76,7 +79,7 @@ class Trainer:
     def __init__(
         self,
         model: Model,
-        optimizer: keras.Optimizer,
+        optimizer: keras.Optimizer | optax.GradientTransformation,
         train_dataloader: Dataloader,
         eval_dataloader: Dataloader = None,
         steps=None,
@@ -120,7 +123,12 @@ class Trainer:
         self._validate_setup()
 
         # Initialize optimizer and callbacks
-        self.optimizer.build(self.model.trainable_variables)
+        if isinstance(optimizer, keras.optimizers.Optimizer):
+            self.optimizer.build(self.model.trainable_variables)
+        else:
+            self.optimizer = convert_to_kithara_optimizer(
+                optimizer, self.model.trainable_variables)
+
         self.callbacks = self._create_callbacks()
         if self.tensorboard_dir:
             # Tensorboard requires reading "iteration" from model.optimizer
@@ -203,9 +211,13 @@ class Trainer:
         (loss, non_trainable_variables), grads = self.grad_fn(
             trainable_variables, non_trainable_variables, x, y
         )
-        trainable_variables, optimizer_variables = self.optimizer.stateless_apply(
-            optimizer_variables, grads, trainable_variables
-        )
+        if isinstance(self.optimizer, KitharaOptimizer):
+            trainable_variables, optimizer_variables = self.optimizer.stateless_apply(
+                trainable_variables, grads, optimizer_variables)
+        else:
+            trainable_variables, optimizer_variables = self.optimizer.stateless_apply(
+                optimizer_variables, grads, trainable_variables
+            )
         return (
             loss,
             (
@@ -294,7 +306,8 @@ class Trainer:
                     "samples_per_second": round(samples_per_second, 2),
                     "train_steps_per_second": round(1 / step_time, 2),
                     "samples_seen": self.global_batch_size * self.step_count,
-                    "learning_rate": self.optimizer.learning_rate.value,
+                    "learning_rate": self.optimizer.learning_rate.value if isinstance(
+                        self.optimizer, keras.optimizers.Optimizer) else self.optimizer.learning_rate,
                 }
 
                 # Log progress
@@ -490,7 +503,12 @@ class Trainer:
             state.append([v.value for v in self.model.trainable_variables])
         if non_trainable_variables:
             state.append([v.value for v in self.model.non_trainable_variables])
-        if optimizer_variables:
+        if not optimizer_variables:
+            return tuple(state)
+
+        if isinstance(self.optimizer, KitharaOptimizer):
+            state.append(self.optimizer.state_or_variables)
+        else:
             state.append([v.value for v in self.optimizer.variables])
         return tuple(state)
 
@@ -542,6 +560,9 @@ class Trainer:
             value = jax.lax.with_sharding_constraint(value, variable._layout)
             variable.assign(value)
 
+        if isinstance(self.optimizer, KitharaOptimizer):
+            return
+
         for variable, value in zip(self.optimizer.variables, optimizer_variables):
             value = jax.lax.with_sharding_constraint(value, variable._layout)
             variable.assign(value)
@@ -579,7 +600,7 @@ class Trainer:
 
     def _create_callbacks(self):
         callbacks = []
-        if self.tensorboard_dir:
+        if self.tensorboard_dir and isinstance(self.optimizer, keras.optimizers.Optimizer):
             callbacks.append(
                 keras.callbacks.TensorBoard(
                     log_dir=self.tensorboard_dir,
@@ -633,6 +654,9 @@ class Trainer:
                         value.shape,
                         value.sharding,
                     )
+            if isinstance(self.optimizer, KitharaOptimizer):
+                return
+
             for variable, value in zip(self.optimizer.variables, state[2]):
                 if is_not_sharded_and_is_large(value):
                     print(
@@ -658,8 +682,11 @@ class Trainer:
         for v in self.model.variables:
             total_size += get_size_in_mb(v.value)
 
-        for v in self.optimizer.variables:
-            total_size += get_size_in_mb(v.value)
+        if isinstance(self.optimizer, keras.optimizers.Optimizer):
+            for v in self.optimizer.variables:
+                total_size += get_size_in_mb(v.value)
+        if isinstance(self.optimizer, KitharaOptimizer):
+            total_size += self.optimizer.get_optimizer_memory_usage() / 10**20
 
         live_arrays = jax.live_arrays()
         live_arrays_size = 0
@@ -677,7 +704,7 @@ class Trainer:
                 f"matches model and optimizer size ({total_size:.3f} MB)."
             )
 
-        try: 
+        try:
             memory_info = jax.local_devices()[0].memory_stats()
             memory_per_device_mb = memory_info["bytes_limit"] / (1024**2)
             total_memory = memory_per_device_mb * jax.device_count()
@@ -686,8 +713,8 @@ class Trainer:
                 "reduce your per-device batch size or sequence length.")
         except Exception as e:
             # memory_info is not available on some TPUs
-            pass 
-    
+            pass
+
     def _validate_setup(self):
         assert (
             self.max_eval_samples >= self.global_batch_size
