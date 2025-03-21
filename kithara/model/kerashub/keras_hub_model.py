@@ -254,3 +254,19 @@ class KerasHubModel(Model):
             save_adapters_separately=save_adapters_separately,
             parallel_threads=parallel_threads,
         )
+    
+    def disable_lora(self):
+        target_names = ["query_dense", "value_dense", "query", "value"]
+        for layer in self.model.backbone._flatten_layers(include_self=False):
+            if layer.name in target_names and hasattr(layer, "enable_lora"):
+                layer.lora_enabled = False
+                layer.lora_enabled = False
+
+
+    def enable_lora(self):
+        target_names = ["query_dense", "value_dense", "query", "value"]
+        for layer in self.model.backbone._flatten_layers(include_self=False):
+            if layer.name in target_names and hasattr(layer, "enable_lora"):
+                layer.lora_enabled = True
+                layer.lora_enabled = True
+

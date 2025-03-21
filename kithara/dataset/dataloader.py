@@ -17,8 +17,10 @@
 from typing import Iterator, Any, Iterable, Dict
 import jax
 from kithara.dataset.dataset import Dataset
-from jax.tree_util import tree_map
+from jax.tree_util import tree_map, tree_map_with_path
 import numpy as np 
+from kithara.distributed.sharding._data_sharding import DataSharding
+from keras.src.backend.common import global_state
 
 class Dataloader(Iterable):
     """Kithara Dataloader class. This dataloader class supports distributed
@@ -79,6 +81,7 @@ class Dataloader(Iterable):
         samples = tree_map(
             lambda *arrays: np.concatenate(arrays), *samples
         )
+        samples = self._prepare_batch_input_for_training(samples)
         return samples
 
     def __len__(self) -> int:
@@ -98,6 +101,51 @@ class Dataloader(Iterable):
         else:
             batches = total_samples // (self.num_hosts * self.per_host_batch_size)
         return batches
+    
+    def _prepare_batch_input_for_training(self, batch):
+            return tree_map_with_path(self._form_global_array, batch)
+    
+    def _form_global_array(self, path, array: np.ndarray) -> jax.Array:
+        """Convert local array to globally sharded array for distributed
+        computing. Each accelerator host should call `_form_global_array` with
+        their local batch shard, this function will from a logical global batch
+        that is sharded across all devices, abiding by the `self.data_sharding`
+        partitioning.
+
+        Args:
+            path: Tree path for the array (used in error reporting)
+            array (np.ndarray): Input array to be distributed
+
+        Returns:
+            jax.Array: Distributed global batch
+        """
+        # Configure data sharding strategy
+        self.data_sharding = global_state.get_global_attribute(
+            "DATA_SHARDING", DataSharding["fully_replicated"]
+        )
+
+        global_batch_size = len(array) * jax.process_count()
+        
+        seq_len = array.shape[1]
+        global_shape = (global_batch_size, seq_len)
+
+        try:
+            local_device_arrays = np.split(
+                array, len(self.data_sharding.mesh.local_devices), axis=0
+            )
+        except ValueError as array_split_error:
+            raise ValueError(
+                f"Unable to put to devices shape {array.shape} with "
+                f"local device count {len(self.data_sharding.mesh.local_devices)} "
+                f"at {jax.tree_util.keystr(path)}"
+            ) from array_split_error
+
+        local_device_buffers = jax.device_put(
+            local_device_arrays, self.data_sharding.mesh.local_devices
+        )
+        return jax.make_array_from_single_device_arrays(
+            global_shape, self.data_sharding, local_device_buffers
+        )
 
     @property
     def global_batch_size(self):

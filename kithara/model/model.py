@@ -113,6 +113,23 @@ class Model(ABC, ModelValidationMixin):
         # This will be automatically set during training.
         self._optimizer = None
 
+        self.jitted_forward = jax.jit(self._forward)
+
+    @property
+    def variables(self):
+        return self.model.variables
+    
+    @property
+    def trainable_variables(self):
+        return self.model.trainable_variables
+
+    @property
+    def non_trainable_variables(self):
+        return self.model.non_trainable_variables
+
+    def summary(self, *args, **kwargs):
+        return self.model.summary( *args, **kwargs)
+
     def __getattr__(self, name):
         try:
             # Try to get the attribute from the Model class first
@@ -148,20 +165,42 @@ class Model(ABC, ModelValidationMixin):
             parallel_threads (int, optional): Number of parallel threads to use for saving.
         """
 
-    def make_generate_step(self):
-        """Create a JIT-compiled function for single-step token generation.
+    def _forward(self, trainable_vars, non_trainable_vars, inputs):
+        logits, _ = self.model.stateless_call(
+            trainable_vars,
+            non_trainable_vars,
+            inputs,
+        )
+        return logits
 
-        Returns:
-            function: Compiled function that performs one step of token generation.
-        """
+    def get_logits(self, inputs):
 
-        def fn(trainable_variables, non_trainable_variables, x):
-            logits, non_trainable_variables = self.model.stateless_call(
-                trainable_variables, non_trainable_variables, x
-            )
-            return logits
+        logits = self.jitted_forward(
+            [var.value for var in self.model.trainable_variables],
+            [var.value for var in self.model.non_trainable_variables],
+            inputs,
+        )
 
-        return jax.jit(fn)
+        return logits
+
+    def update_model_state(self, trainable_variables=None, non_trainable_variables=None, optimizer_variables=None):
+        """Update model internal parameters with the provided state."""
+        if trainable_variables:
+            for variable, value in zip(self.model.trainable_variables, trainable_variables):
+                value = jax.lax.with_sharding_constraint(value, variable._layout)
+                variable.assign(value)
+        
+        if non_trainable_variables:
+            for variable, value in zip(
+                self.model.non_trainable_variables, non_trainable_variables
+            ):
+                value = jax.lax.with_sharding_constraint(value, variable._layout)
+                variable.assign(value)
+        
+        if optimizer_variables:
+            for variable, value in zip(self.optimizer.variables, optimizer_variables):
+                value = jax.lax.with_sharding_constraint(value, variable._layout)
+                variable.assign(value)
 
     @property
     def optimizer(self):
@@ -239,9 +278,7 @@ class Model(ABC, ModelValidationMixin):
         elif isinstance(inputs, str):
             inputs = [inputs]
         if not isinstance(inputs, list):
-            raise TypeError(
-                "Non-list input must be a str or a np.ndarray."
-            )
+            raise TypeError("Non-list input must be a str or a np.ndarray.")
         if isinstance(inputs[0], str) or return_decoded:
             assert (
                 tokenizer or tokenizer_handle
@@ -261,7 +298,7 @@ class Model(ABC, ModelValidationMixin):
             for attr in token_attributes:
                 if hasattr(tokenizer, attr):
                     stop_token_ids.append(getattr(tokenizer, attr))
-        
+
         if isinstance(inputs[0], list):
             inputs = [np.array(l) for l in inputs]
         tokens: list[list[int]] = self._generate(

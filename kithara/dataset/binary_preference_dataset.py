@@ -78,7 +78,7 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         if self.custom_formatting_fn:
             sample = self.custom_formatting_fn(sample)
         return {
-            "prompt": sample[self.column_mapping["prompt"]],
+            "prompt": sample[self.column_mapping["prompt"]] if self.column_mapping["prompt"] is not None else "",
             "chosen": sample[self.column_mapping["chosen"]],
             "rejected": sample[self.column_mapping["rejected"]],
         }
