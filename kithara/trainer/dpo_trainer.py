@@ -1,33 +1,18 @@
 import os
-import subprocess
-import sys
-
 os.environ["KERAS_BACKEND"] = "jax"
-subprocess.run(["pip", "install", "setuptools==61.0"])
-sys.path.append("kithra/model/maxtext/JetStream/jetstream")
-
-import keras
+# import subprocess
+# subprocess.run(["pip", "install", "setuptools==61.0"])
 import kithara
 
 import jax
-from kithara.dataset.binary_preference_dataset import BinaryPreferenceDataset
-from kithara.dataset import Dataloader
 import ray
 from kithara.rlhf.dpo_loss import dpo_loss_fn
+from kithara.model.model import (
+    create_model_from_config,
+    create_optimizer_from_config,
+    ModelConfig,
+)
 from dataclasses import dataclass
-from datasets import load_dataset
-
-@dataclass
-class ModelConfig:
-    preset_handle: str
-    model_type: str
-    lora_rank: int
-    precision: str
-    per_device_batch_size: int
-    seq_len: int
-    optimizer_name: str
-    learning_rate: float 
-    
 
 @dataclass
 class DPOConfig:
@@ -35,42 +20,13 @@ class DPOConfig:
     beta: float = 0.1
 
 
-def create_model_from_config(config):
-    if config.model_type == "KerasHub":
-        model = kithara.KerasHubModel.from_preset(
-            config.preset_handle,
-            lora_rank=config.lora_rank,
-            precision=config.precision,
-        )
-        mask_key = "padding_mask"
-        token_key = "token_ids"
-    elif config.model_type == "MaxText":
-        model = kithara.MaxTextModel.from_preset(
-            config.preset_handle,
-            precision=config.precision,
-            seq_len=config.seq_len,
-            per_device_batch_size=config.per_device_batch_size,
-        )
-        mask_key = "segment_ids"
-        token_key = "tokens"
-    else:
-        raise ValueError(
-            "Model type not supported. Must be one of MaxText and KerasHub"
-        )
-    return model, mask_key, token_key
-
-
-def create_optimizer_from_config(config):
-    if config.optimizer_name == "adamw":
-        optimizer = keras.optimizers.AdamW(learning_rate=config.learning_rate, weight_decay=0.01)
-    return optimizer
-
-
 class DPOPolicyModel:
     def __init__(self, dpo_config: DPOConfig):
         self.dpo_config = dpo_config
         model_config = dpo_config.policy_model
-        self.model, self.mask_key, self.token_key = create_model_from_config(model_config)
+        self.model, self.mask_key, self.token_key = create_model_from_config(
+            model_config
+        )
         self.optimizer = create_optimizer_from_config(model_config)
         self.optimizer.build(self.model.trainable_variables)
         self.model.optimizer = self.optimizer
@@ -106,7 +62,7 @@ class DPOPolicyModel:
                 ref_logits,
                 batch["x"][self.mask_key],
                 batch["x"][self.token_key],
-                beta = self.dpo_config.beta
+                beta=self.dpo_config.beta,
             )
             return loss, non_trainable_variables
 
@@ -139,7 +95,7 @@ class DPOPolicyModel:
 
 class DPOReferenceModel:
     def __init__(self, dpo_config: DPOConfig):
-        
+
         self.model, *_ = create_model_from_config(dpo_config.policy_model)
 
     def get_logits(self, batch):
@@ -233,7 +189,6 @@ class DPOTrainer:
                 loss = self.mpmd_train_step(batch)
             else:
                 loss = self.spmd_train_step(batch)
-            
+
             self.step_count += 1
             print("loss", loss)
-

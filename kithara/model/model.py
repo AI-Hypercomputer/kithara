@@ -17,22 +17,17 @@ limitations under the License.
 import keras
 import jax
 import numpy as np
+from enum import Enum
 from abc import ABC, abstractmethod
-from typing import Optional, Any, List, Union, Dict
+from typing import Optional, Any, List, Union
 from keras.src.backend.common import global_state
 from keras.distribution import set_distribution
 from kithara.distributed.sharding import ShardingStrategy
 from kithara.distributed.sharding.utils import (
     print_elements_that_are_unsharded_and_large_in_pytree,
 )
-from keras.src.backend.common import global_state
-from kithara.distributed.sharding._mesh import Axis
-from jax.experimental import multihost_utils
-import time
-from enum import Enum
-from transformers import AutoTokenizer
 from kithara.dataset.utils import initialize_tokenizer
-
+from dataclasses import dataclass
 
 class ModelImplementationType(str, Enum):
 
@@ -218,7 +213,7 @@ class Model(ABC, ModelValidationMixin):
         max_length: int = 100,
         stop_token_ids: Union[str | List[int]] = "auto",
         strip_prompt: bool = False,
-        tokenizer: Optional[AutoTokenizer] = None,
+        tokenizer: Optional["AutoTokenizer"] = None,
         tokenizer_handle: Optional[str] = None,
         return_decoded: bool = True,
         skip_special_tokens: bool = True,
@@ -434,3 +429,49 @@ def set_global_model_implementation_type(model_type) -> None:
             f"{model_type} must be one of {ModelImplementationType.list_supported_types()}"
         )
     global_state.set_global_attribute("MODEL_IMPLEMENTATION", model_type)
+
+
+
+@dataclass
+class ModelConfig:
+    preset_handle: str
+    model_type: str
+    lora_rank: int
+    precision: str
+    per_device_batch_size: int
+    seq_len: int
+    optimizer_name: str
+    learning_rate: float 
+
+# TODO: Complete ModelConfig
+def create_model_from_config(config: ModelConfig):
+    if config.model_type == "KerasHub":
+        from kithara.model.kerashub import KerasHubModel
+        model = KerasHubModel.from_preset(
+            config.preset_handle,
+            lora_rank=config.lora_rank,
+            precision=config.precision,
+        )
+        mask_key = "padding_mask"
+        token_key = "token_ids"
+    elif config.model_type == "MaxText":
+        from kithara.model.maxtext import MaxTextModel
+        model = MaxTextModel.from_preset(
+            config.preset_handle,
+            precision=config.precision,
+            seq_len=config.seq_len,
+            per_device_batch_size=config.per_device_batch_size,
+        )
+        mask_key = "segment_ids"
+        token_key = "tokens"
+    else:
+        raise ValueError(
+            "Model type not supported. Must be one of MaxText and KerasHub"
+        )
+    return model, mask_key, token_key
+
+
+def create_optimizer_from_config(config: ModelConfig):
+    if config.optimizer_name == "adamw":
+        optimizer = keras.optimizers.AdamW(learning_rate=config.learning_rate, weight_decay=0.01)
+    return optimizer
