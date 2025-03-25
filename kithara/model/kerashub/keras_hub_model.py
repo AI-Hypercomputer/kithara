@@ -209,9 +209,9 @@ class KerasHubModel(Model):
         )
                 
         results = []
-        for i in range(len(inputs["token_ids"])):
-            is_token = tokens["padding_mask"][i, :] == True
-            generated_tokens = tokens["token_ids"][i, :][is_token]
+        for idx, _ in enumerate(inputs["token_ids"]):
+            is_token = tokens["padding_mask"][idx, :] == True
+            generated_tokens = tokens["token_ids"][idx, :][is_token]
             results.append(generated_tokens.tolist())
         return results
 

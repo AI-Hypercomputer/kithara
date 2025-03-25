@@ -1,18 +1,18 @@
 """
- Copyright 2025 Google LLC
+Copyright 2025 Google LLC
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-      https://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- """
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 import os
 
@@ -28,22 +28,27 @@ import importlib.metadata
 import sys
 import warnings
 
+
 def check_python_version():
     """
     Check if Python version is 3.11 or above, and issue a warning if it's not.
     """
     python_version = sys.version_info
-    
-    if python_version.major < 3 or (python_version.major == 3 and python_version.minor < 11):
+
+    if python_version.major < 3 or (
+        python_version.major == 3 and python_version.minor < 11
+    ):
         warning_message = (
             f"Warning: Your current Python version is {python_version.major}.{python_version.minor}. "
             "Kithara requires Python 3.11 or above."
         )
-        warnings.warn(warning_message, RuntimeWarning)        
+        warnings.warn(warning_message, RuntimeWarning)
         return False
     return True
 
+
 check_python_version()
+
 
 def _install_maxtext():
     try:
@@ -80,10 +85,9 @@ def _install_maxtext():
         except Exception as e:
             print(f"Failed to install maxtext: {e}")
 
-    maxtext_dir = Path(
-        os.path.join(os.path.dirname(Path(__file__)), "model/maxtext/maxtext/MaxText")
-    )
+    maxtext_dir = Path(__file__).parent / "model/maxtext/maxtext/MaxText"
     sys.path.append(str(maxtext_dir))
+
 
 def _install_jetstream():
     try:
@@ -111,14 +115,41 @@ def _install_jetstream():
         except Exception as e:
             print(f"Failed to install JetStream: {e}")
 
-    jetsteam_dir = Path(
-        os.path.join(os.path.dirname(Path(__file__)), "model/maxtext/JetSteam/jetstream")
-    )
-    sys.path.append(str(jetsteam_dir))
+    jetstream_dir = Path(__file__).parent / "model/maxtext/JetStream"
+    sys.path.append(str(jetstream_dir))
+
+
+def _install_seqio():
+    """We need to install seqio separate from the rest of packages in
+    project.toml for now due to endless backtracking during
+    pip dependency resolution. We are installing the seqio package upon
+    kithara initialization with the --no-deps flag.
+    """
+    try:
+        importlib.metadata.version("seqio")
+    except importlib.metadata.PackageNotFoundError:
+        try:
+            print(
+                "Installing Seqio... This should only happen once when Kithara is first initiated."
+            )
+            subprocess.check_call(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "seqio==0.0.19",
+                    "--no-deps",
+                ]
+            )
+            print("Seqio installed successfully")
+        except Exception as e:
+            print(f"Failed to install Seqio: {e}")
+
 
 _install_maxtext()
 _install_jetstream()
-
+_install_seqio()
 
 from kithara.dataset import Dataloader, SFTDataset, TextCompletionDataset
 from kithara.trainer import Trainer

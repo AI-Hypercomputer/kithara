@@ -42,4 +42,5 @@ html_theme_options = {
     },
     "logo_light": "../images/kithara_logo_no_text.png",
     "logo_dark": "../images/kithara_logo_no_text.png",
+    "show_prev_next": True,
 }

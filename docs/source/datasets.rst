@@ -5,7 +5,7 @@ Supported Data Formats
 
 The expected flow is always Ray Dataset -> Kithara Dataset -> Kithara Dataloader. 
 
-E.g::
+For example,::
     
     hf_dataset = load_dataset("allenai/c4", "en", split="train", streaming=True)
     ray_dataset = ray.data.from_huggingface(hf_dataset)
@@ -20,10 +20,10 @@ E.g::
         per_device_batch_size=1
     )
 
-.. tip:: 
-    You can load data from your local directory, S3, GCS, ABS, and any other data storage platforms supported by Ray Data.
+.. note:: 
+    You can load files and other data from your local directory, S3, GCS, ABS, and any other data storage platforms supported by `Ray Data <https://docs.ray.io/en/latest/data/loading-data.html#reading-files>`_.
 
-Following are examples of how to load data from various formats using Ray Dataset. 
+Kithara supports all file formats supported by Ray Dataset. Listed below are some examples using popular dataset types.
 
 HuggingFace Dataset
 ~~~~~~~~~~~~~~~~~~
@@ -34,6 +34,7 @@ Load datasets directly from the Hugging Face Hub. Streaming datasets are support
     
 JSON and JSONL
 ~~~~~~~~~~~~~
+Read JSON and JSONL files.
 
 .. code-block:: python
 
@@ -41,6 +42,7 @@ JSON and JSONL
 
 CSV
 ~~~
+Read CSV files.
 
 .. code-block:: python
 
@@ -71,12 +73,15 @@ Pandas
 
 Lines of Text 
 ~~~~~~~~~~~~~
+Read text files.
+
 .. code-block:: python
 
     ray_dataset = ray.data.read_text("s3://anonymous@ray-example-data/this.txt")
 
 TFRecords
 ~~~~~~~~~
+Read TFRecords Files
 
 .. code-block:: python
 
@@ -85,6 +90,7 @@ TFRecords
 
 Parquet 
 ~~~~~~~
+Read Parquet files.
 
 .. code-block:: python
 

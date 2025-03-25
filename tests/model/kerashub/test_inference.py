@@ -120,8 +120,7 @@ class TestModelGeneration(unittest.TestCase):
         )
         self.assertIsInstance(pred, list)
         self.assertEqual(len(pred), 10)
-        for i in range(10):
-            self.assertEqual(len(pred[i]), 5)
+        self.assertTrue(all(len(p) == 5 for p in pred))
     
     @timeout(200)
     def test_generate_with_multiple_token_prompts(self):
@@ -135,8 +134,7 @@ class TestModelGeneration(unittest.TestCase):
         )
         self.assertIsInstance(pred, list)
         self.assertEqual(len(pred), 10)
-        for i in range(10):
-            self.assertEqual(len(pred[i]), 2)
+        self.assertTrue(all(len(p) == 2 for p in pred))
 
 
     @timeout(200)

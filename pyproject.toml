@@ -5,7 +5,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "kithara"
 description = "LLM post-training library"
-version = "0.0.8"
+version = "0.0.10"
 readme = "README.md"
 license = { file = 'LICENSE' }
 authors = [{ name = 'Kithara Authors' }]
@@ -42,6 +42,14 @@ dependencies = [
         "ml-goodput-measurement",
         "google-cloud-monitoring",
         "omegaconf",
+        # Jetstream dependencies
+        "setuptools==61.0",
+        "jaxtyping",
+        "clu",
+        "editdistance",
+        "pyglove",
+        "tensorflow_datasets",
+        "tfds-nightly" #"tfds-nightly==4.9.8.dev202503240044"
 ]
 
 [project.optional-dependencies]

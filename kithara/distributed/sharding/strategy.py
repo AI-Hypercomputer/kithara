@@ -16,7 +16,7 @@
 
 from dataclasses import dataclass
 from typing import Optional
-from keras.distribution import DeviceMesh, LayoutMap, ModelParallel, set_distribution
+from keras.src.distribution import DeviceMesh, LayoutMap, ModelParallel
 from keras.src.distribution.distribution_lib import Distribution
 from jax.sharding import Sharding
 from kithara.distributed.sharding._mesh import Mesh as PredefinedMesh
@@ -29,8 +29,8 @@ from keras.src.backend.common import global_state
 class ShardingStrategy(ABC):
     """Abstract base class for Kithara sharding strategies.
 
-    A sharding strategy defines how to shard model and optimizer parameters, 
-    and input data across all devices. 
+    A sharding strategy defines how to shard model and optimizer parameters,
+    and input data across all devices.
 
     Properties:
         mesh: The device mesh configuration for distributed training

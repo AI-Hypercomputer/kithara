@@ -19,15 +19,15 @@
 This script demonstrates how to:
 1. Set up a Gemma2 model for LoRA SFT
 2. Load HuggingFace Gemma2 checkpoint
-3. Load HuggingFace Dataset 
+3. Load HuggingFace Dataset
 4. Configure data loading and preprocessing
 5. Run training across TPU/GPU devices
 6. Save the LoRA adapters
 
-This script can be run on both single-host and multi-host. 
+This script can be run on both single-host and multi-host.
 For mulit-host set up, please follow https://kithara.readthedocs.io/en/latest/scaling_with_ray.html.
 
-Singlehost: python examples/singlehost/sft_lora_example.py 
+Singlehost: python examples/singlehost/sft_lora_example.py
 Multihost:  python ray/submit_job.py "python3.11 examples/multihost/ray/TPU/sft_lora_example.py" --hf-token your_token
 """
 
@@ -48,7 +48,7 @@ def main():
     import subprocess
 
     subprocess.run(["rm", "-rf", "/tmp/libtpu_lockfile", "/tmp/tpu_logs"])
-    
+
 
     # HuggingFace login
     from huggingface_hub import login
@@ -64,7 +64,7 @@ def main():
     from singlehost.sft_lora_example import run_workload
 
     # Save your model in cloud storage. Use None to skip model saving.
-    run_workload(model_output_dir="gs://wenxindong-vm/model_output")
+    run_workload(model_output_dir=None)
 
 
 ray.get([main.remote() for i in range(num_tpu_hosts)])

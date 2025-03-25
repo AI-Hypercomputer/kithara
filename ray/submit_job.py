@@ -48,7 +48,7 @@ def main():
         runtime_env={
             "working_dir": "./",
             # These files are too large and are safe to exclude
-            "excludes": ["**/test_assets/", ".git/", "*.Dockerfile"],
+            "excludes": ["**/test_assets/", ".git/", "*.Dockerfile", "*.pkl"],
             "pip": [],  # Any missing dependencies to run job goes here
             "env_vars": {"HF_TOKEN": args.hf_token, "HF_HUB_ENABLE_HF_TRANSFER": "1"},
         },

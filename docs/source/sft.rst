@@ -196,4 +196,4 @@ Notes
 -----
 
 - Give ~10 minutes for this script to complete the first time you run it. Subsequent runs will take shorter as model and compilation would be cached. 
-- To run this example on multihost, use this `script <https://github.com/AI-Hypercomputer/kithara/blob/main/ray/sft_lora_example.py>`_.
+- To run this example on multihost, use this `script <https://github.com/AI-Hypercomputer/kithara/blob/main/examples/multihost/ray/TPU/sft_lora_example.py>`_.

@@ -16,10 +16,12 @@
 
 """Unit tests for running SFT on singlehost
 
-Run test on a TPU VM: python -m unittest tests/trainer/test_trainer_creation.py 
+Run test on a TPU VM: python -m unittest tests/trainer/test_trainer_creation.py
 """
 import os
 os.environ["KERAS_BACKEND"] = "jax"
+
+import optax
 
 import unittest
 from kithara import (
@@ -33,7 +35,7 @@ import unittest.result
 import ray
 from kithara.utils.gcs_utils import find_cache_root_dir
 import shutil
-import keras 
+import keras
 
 
 class TestRunningSFT(unittest.TestCase):
@@ -54,7 +56,7 @@ class TestRunningSFT(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.TMP_DIR, ignore_errors=True)
-    
+
     def _create_model(self):
         return MaxTextModel.from_random(
             "default",
@@ -105,7 +107,32 @@ class TestRunningSFT(unittest.TestCase):
             learning_rate=self.LEARNING_RATE,
             weight_decay=0.01,
         )
-        
+
+        # Initialize trainer
+        trainer = Trainer(
+            model=model,
+            optimizer=optimizer,
+            train_dataloader=train_dataloader,
+            epochs=1,
+            log_steps_interval=self.LOG_STEPS_INTERVAL,
+            tensorboard_dir=os.path.join(self.TMP_DIR, "tensorboard")
+        )
+
+        # Start training
+        trainer.train()
+
+    @unittest.skipIf(int(os.getenv('RUN_LIGHT_TESTS_ONLY', 0)) == 1, "Heavy Test")
+    def test_train_with_optax_optimizer(self):
+
+        train_dataloader, eval_dataloader = self._create_dataloaders()
+        model = self._create_model()
+
+        # Create Optax optimizer
+        optimizer = optax.chain(
+            optax.adamw(self.LEARNING_RATE, weight_decay=.01),
+            optax.clip(1.0)
+        )
+
         # Initialize trainer
         trainer = Trainer(
             model=model,
@@ -130,7 +157,7 @@ class TestRunningSFT(unittest.TestCase):
             learning_rate=self.LEARNING_RATE,
             weight_decay=0.01,
         )
-        
+
         # Initialize trainer
         trainer = Trainer(
             model=model,
@@ -156,7 +183,7 @@ class TestRunningSFT(unittest.TestCase):
             learning_rate=self.LEARNING_RATE,
             weight_decay=0.01,
         )
-        
+
         # Initialize trainer
         trainer = Trainer(
             model=model,
@@ -183,7 +210,7 @@ class TestRunningSFT(unittest.TestCase):
             learning_rate=self.LEARNING_RATE,
             weight_decay=0.01,
         )
-        
+
         # Initialize trainer
         trainer = Trainer(
             model=model,

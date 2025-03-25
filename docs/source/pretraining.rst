@@ -176,5 +176,5 @@ Notes
 -----
 
 - Give ~10 minutes for this script to complete the first time you run it. Subsequent runs will be shorter as the model and compilation would be cached.
-- To run this example on multihost, use this `script <https://github.com/AI-Hypercomputer/kithara/blob/main/ray/continued_pretraining.py>`_.
+- To run this example on multihost, use this `script <https://github.com/AI-Hypercomputer/kithara/blob/main/examples/multihost/ray/TPU/continued_pretraining_example.py>`_.
 - In practice you will train for much longer steps. 

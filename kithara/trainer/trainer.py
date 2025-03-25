@@ -21,12 +21,15 @@ import keras
 import time
 import sys
 import jax
+import optax
+from dataclasses import dataclass
 from kithara.distributed.sharding.utils import (
     entire_tree_is_sharded,
     is_not_sharded_and_is_large,
     get_size_in_mb,
     get_size_in_gb,
 )
+from kithara.optimizers import convert_to_kithara_optimizer
 from kithara.model import Model
 from kithara.dataset import Dataloader
 from kithara.callbacks import Profiler, Checkpointer
@@ -44,7 +47,8 @@ class Trainer:
 
     Attributes:
         model (kithara.Model): The model to be trained or evaluated.
-        optimizer (keras.Optimizer): The optimizer used for training.
+        optimizer (keras.Optimizer | optax.GradientTransformation | optax.GradientTransformationExtraArgs): The optimizer used for training.
+            It supports Keras optimizers and optax optimizers.
         train_dataloader (kithara.Dataloader): A dataloader that provides training batches.
         eval_dataloader (kithara.Dataloader, optional): A dataloader that provides evaluation batches.
             Defaults to None.
@@ -76,7 +80,7 @@ class Trainer:
     def __init__(
         self,
         model: Model,
-        optimizer: keras.Optimizer,
+        optimizer: keras.Optimizer | optax.GradientTransformation | optax.GradientTransformationExtraArgs,
         train_dataloader: Dataloader,
         eval_dataloader: Dataloader = None,
         steps=None,
@@ -120,11 +124,16 @@ class Trainer:
         self._validate_setup()
 
         # Initialize optimizer and callbacks
-        self.optimizer.build(self.model.trainable_variables)
+        if isinstance(optimizer, keras.optimizers.Optimizer):
+            self.optimizer.build(self.model.trainable_variables)
+        else:
+            self.optimizer = convert_to_kithara_optimizer(
+                optimizer, self.model.trainable_variables)
+
         self.callbacks = self._create_callbacks()
         if self.tensorboard_dir:
             # Tensorboard requires reading "iteration" from model.optimizer
-            self.model.optimizer = optimizer
+            self.model.optimizer = self.optimizer
 
         # JIT compile training and evaluation steps for better performance
         self.train_step = self._make_train_step()
@@ -200,8 +209,7 @@ class Trainer:
             trainable_variables, non_trainable_variables, x, y
         )
         trainable_variables, optimizer_variables = self.optimizer.stateless_apply(
-            optimizer_variables, grads, trainable_variables
-        )
+            optimizer_variables, grads, trainable_variables)
         return (
             loss,
             (
@@ -288,7 +296,9 @@ class Trainer:
                     "samples_per_second": round(samples_per_second, 2),
                     "train_steps_per_second": round(1 / step_time, 2),
                     "samples_seen": self.global_batch_size * self.step_count,
-                    "learning_rate": self.optimizer.learning_rate.value,
+                    "learning_rate": (round(float(self.optimizer.learning_rate.value),7)
+                                      if self.optimizer.learning_rate is not None else None),
+
                 }
 
                 # Log progress
@@ -483,8 +493,9 @@ class Trainer:
             state.append([v.value for v in self.model.trainable_variables])
         if non_trainable_variables:
             state.append([v.value for v in self.model.non_trainable_variables])
-        if optimizer_variables:
-            state.append([v.value for v in self.optimizer.variables])
+        if not optimizer_variables:
+            return tuple(state)
+        state.append(jax.tree.map(lambda leaf: leaf.value, self.optimizer.variables))
         return tuple(state)
 
     def _update_model_with_state(self, state):
@@ -499,9 +510,12 @@ class Trainer:
             value = jax.lax.with_sharding_constraint(value, variable._layout)
             variable.assign(value)
 
-        for variable, value in zip(self.optimizer.variables, optimizer_variables):
-            value = jax.lax.with_sharding_constraint(value, variable._layout)
-            variable.assign(value)
+        _ = jax.tree.map(
+            lambda variable, value: variable.assign(
+                jax.lax.with_sharding_constraint(value, variable._layout)),
+            self.optimizer.variables,
+            optimizer_variables,
+        )
 
 
     def _print_run_summary(self):
@@ -534,7 +548,7 @@ class Trainer:
 
     def _create_callbacks(self):
         callbacks = []
-        if self.tensorboard_dir:
+        if self.tensorboard_dir and isinstance(self.optimizer, keras.optimizers.Optimizer):
             callbacks.append(
                 keras.callbacks.TensorBoard(
                     log_dir=self.tensorboard_dir,
@@ -588,15 +602,18 @@ class Trainer:
                         value.shape,
                         value.sharding,
                     )
-            for variable, value in zip(self.optimizer.variables, state[2]):
-                if is_not_sharded_and_is_large(value):
-                    print(
-                        f"Step {self.step_count}: optimizer variable is not sharded",
-                        f"{get_size_in_mb(value)}mb",
-                        variable.path,
-                        value.shape,
-                        value.sharding,
-                    )
+
+            _ = jax.tree.map(
+                lambda variable, value: print(
+                    f"Step {self.step_count}: optimizer variable is not sharded",
+                    f"{get_size_in_mb(value)}mb",
+                    variable.path,
+                    value.shape,
+                    value.sharding,
+                ) if is_not_sharded_and_is_large(value) else None,
+                self.optimizer.variables,
+                state[2])
+
         except Exception as e:
             print(f"Error during sharding correctness validation: {e}")
 
@@ -613,8 +630,9 @@ class Trainer:
         for v in self.model.variables:
             total_size += get_size_in_mb(v.value)
 
-        for v in self.optimizer.variables:
-            total_size += get_size_in_mb(v.value)
+        total_size += jax.tree.reduce(
+            lambda agg, leaf: jax.numpy.add(agg, get_size_in_mb(leaf.value)), self.optimizer.variables,
+            initializer=0)
 
         live_arrays = jax.live_arrays()
         live_arrays_size = 0
@@ -632,7 +650,7 @@ class Trainer:
                 f"matches model and optimizer size ({total_size:.3f} MB)."
             )
 
-        try: 
+        try:
             memory_info = jax.local_devices()[0].memory_stats()
             memory_per_device_mb = memory_info["bytes_limit"] / (1024**2)
             total_memory = memory_per_device_mb * jax.device_count()
@@ -641,8 +659,8 @@ class Trainer:
                 "reduce your per-device batch size or sequence length.")
         except Exception as e:
             # memory_info is not available on some TPUs
-            pass 
-    
+            pass
+
     def _validate_setup(self):
         assert (
             self.max_eval_samples >= self.global_batch_size

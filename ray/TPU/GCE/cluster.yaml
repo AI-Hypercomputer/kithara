@@ -1,5 +1,5 @@
 # A unique identifier for the head node and workers of this cluster.
-cluster_name: wenxindong-official-pypi # MODIFY choose your cluster name
+cluster_name: ray-cluster # MODIFY choose your cluster name
 max_workers: 1
 available_node_types:
   # The ray head node is a CPU node
@@ -40,13 +40,13 @@ available_node_types:
     max_workers: 1
     resources: { "TPU": 4 } # MODIFY this to be the number of chips per host for your TPU type. Should be 4 for v4 and v5 and 8 for v4e and v5e
     node_config:
-      acceleratorType: v4-32 # MODIFY this to be your TPU type
+      acceleratorType: v4-16 # MODIFY this to be your TPU type
       runtimeVersion: tpu-ubuntu2204-base
 provider: # MODIFY this section with your provider spec
   type: gcp
   region: us-central2 #MODIFY this with your region
   availability_zone: us-central2-b #MODIFY this with your availability_zone
-  project_id: mlperf-high-priority-project #MODIFY this with your project id
+  project_id: project_id #MODIFY this with your project id
 
 initialization_commands:
   # Don't stall on ubuntu graphic...

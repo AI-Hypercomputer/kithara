@@ -1,10 +1,18 @@
-.. Kithara documentation master file, created by
+.. Kithara Documentation master file, created by
    sphinx-quickstart on Wed Nov 20 10:35:12 2024.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
 👋 Welcome to Kithara!
 ===================================
+.. button-link:: https://kithara.readthedocs.io/en/latest/index.html
+   
+   https://goo.gle/kithara
+
+
+
+
+   
 .. note::
 
    This project is under active development.
