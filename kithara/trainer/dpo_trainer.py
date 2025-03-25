@@ -225,9 +225,6 @@ class DPOTrainer:
 
     def train(self):
 
-        pred = self.policy_model.generate("What is the best programming language?", tokenizer_handle = "google/gemma-2-2b")
-        print("before", pred)
-
         for batch in self.train_dataloader:
             if self.step_count >= self.steps:
                 break
@@ -240,53 +237,3 @@ class DPOTrainer:
             self.step_count += 1
             print("loss", loss)
 
-        pred = self.policy_model.generate("What is the best programming language?", tokenizer_handle = "google/gemma-2-2b")
-        print("after", pred)
-
-
-def toy_dpo():
-
-    # from huggingface_hub import login
-    # login("")
-
-    dpo_dataset_dict = [
-        {
-            "prompt": "hello",
-            "chosen": " hi nice to meet you",
-            "rejected": " leave me alone",
-        }
-        for _ in range(100)
-    ]
-    train_dataset = load_dataset("trl-lib/ultrafeedback_binarized", split="train")
-
-    # dataset = ray.data.from_items(dpo_dataset_dict)
-    dataset = BinaryPreferenceDataset(
-        train_dataset, tokenizer_handle="google/gemma-2-2b", model_type="KerasHub", column_mapping={"prompt": None, "chosen": "chosen", "rejected": "rejected"}
-    )
-
-    dataloader = Dataloader(dataset, per_device_batch_size=1)
-    
-    policy_model_config = ModelConfig(
-        preset_handle="hf://google/gemma-2-2b",
-        model_type="KerasHub",
-        lora_rank=16,
-        precision="mixed_bfloat16",
-        per_device_batch_size=1,
-        seq_len=1024,
-        optimizer_name="adamw",
-        learning_rate=2e-4   
-    )
-    
-    dpo_config = DPOConfig(
-        beta=0.1, policy_model=policy_model_config
-    )
-
-    dpo_trainer = DPOTrainer(
-        dpo_config=dpo_config, train_dataloader=dataloader, run_mpmd=False, steps=50
-    )
-    
-    dpo_trainer.train()
-
-
-if __name__ == "__main__":
-    toy_dpo()

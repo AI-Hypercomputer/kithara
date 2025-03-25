@@ -24,7 +24,7 @@ from transformers import AutoTokenizer
 
 
 class BinaryPreferenceDataset(TextCompletionDataset):
-    """A dataset class for Direct Preference Optimization (DPO) tasks.
+    """A dataset class for binary preference pptimization tasks, e.g. DPO.
 
     Args:
         source (ray.data.Dataset): The source Ray dataset containing the training data.
@@ -36,6 +36,7 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             Please specify model_type or set MODEL_IMPLEMENTATION in global state. Global
             state is automatically set upon model initialization. Supported types:
             ModelImplementationType.KERASHUB, ModelImplementationType.MAXTEXT
+        max_prompt_length: TODO
         max_seq_len (int): Maximum sequence length for tokenization (default: 1024). Sequences
             will be padded to this length.
         custom_formatting_fn（callable): A custom formatting function to apply to the raw
@@ -49,6 +50,7 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         tokenizer_handle: Optional[str] = None,
         column_mapping: Optional[Dict[str, str]] = None,
         model_type: Optional["ModelImplementationType"] = "auto",
+        max_prompt_length: int = 512,
         max_seq_len: int = 1024,
         custom_formatting_fn: Optional[callable] = None,
     ):
@@ -60,7 +62,12 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             max_seq_len=max_seq_len,
             custom_formatting_fn=custom_formatting_fn,
         )
-        self.column_mapping = {"prompt": "prompt", "chosen": "chosen", "rejected": "rejected"}
+        self.max_prompt_length = max_prompt_length
+        self.column_mapping = {
+            "prompt": "prompt",
+            "chosen": "chosen",
+            "rejected": "rejected",
+        }
         if column_mapping:
             self.column_mapping = {**self.column_mapping, **column_mapping}
 
@@ -78,7 +85,11 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         if self.custom_formatting_fn:
             sample = self.custom_formatting_fn(sample)
         return {
-            "prompt": sample[self.column_mapping["prompt"]] if self.column_mapping["prompt"] is not None else "",
+            "prompt": (
+                sample[self.column_mapping["prompt"]]
+                if self.column_mapping["prompt"] is not None
+                else ""
+            ),
             "chosen": sample[self.column_mapping["chosen"]],
             "rejected": sample[self.column_mapping["rejected"]],
         }
@@ -92,7 +103,7 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray]: Tuple containing input_ids,
             attention_mask, and label_ids.
-            The chosen and rejected tokens will be interleaved: 
+            The chosen and rejected tokens will be interleaved:
                 input_ids : [[prompt+chosen], [prompt+rejected], [prompt+chosen],[prompt+rejected]]
                 padding_mask: [[prompt+chosen],  [prompt+rejected], [prompt+chosen],[prompt+rejected]]
                 labels_ids: [[prompt+chosen], [prompt+rejected], [prompt+chosen],[prompt+rejected]]
