@@ -47,7 +47,7 @@ config = {
     "seq_len": 4096,
     "lora_rank": 16,
     "precision": "mixed_bfloat16",
-    "training_steps": 2,
+    "training_steps": 60,
     "eval_steps_interval": 10,
     "log_steps_interval": 1,
     "per_device_batch_size": 1,
