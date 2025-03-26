@@ -14,32 +14,39 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from kithara.dataset.utils import HFtokenize
-import ray
+from typing import Dict, Any, Optional, Tuple, Union, Callable
+
 import numpy as np
-from typing import Dict, Any, Optional, List, Union
-from kithara.dataset.text_completion import TextCompletionDataset
+import ray
 from transformers import AutoTokenizer
+
+from kithara.dataset.text_completion import TextCompletionDataset
+from kithara.dataset.utils import HFtokenize
 
 
 class BinaryPreferenceDataset(TextCompletionDataset):
     """A dataset class for binary preference optimization tasks, e.g. DPO.
-
+    
+    This class handles binary preference data where each sample contains a prompt,
+    a chosen response, and a rejected response. It prepares the data for training
+    models with preference optimization objectives.
+    
     Args:
         source (ray.data.Dataset): The source Ray dataset containing the training data.
-        tokenizer (Optional[AutoTokenizer]): HuggingFace tokenizer instance.
+        tokenizer (Optional[AutoTokenizer]): HuggingFace tokenizer instance. If not provided, will be loaded
+            from tokenizer_handle.
         tokenizer_handle (Optional[str]): Handle/name of the tokenizer to load if not provided.
-        column_mapping (Optional[Dict[str, str]]): Mapping of source column names to expected
-            column names ("prompt", "chosen", "rejected").
-        model_type (Optional[ModelImplementationType]): Type of model implementation to use.
-            Please specify model_type or set MODEL_IMPLEMENTATION in global state. Global
-            state is automatically set upon model initialization. Supported types:
-            ModelImplementationType.KERASHUB, ModelImplementationType.MAXTEXT
+        column_mapping (Optional[Dict[str, str]]): Mapping of source column names to expected column names
+            ("prompt", "chosen", "rejected").
+        model_type (Optional["ModelImplementationType"]): Type of model implementation to use. Please specify model_type or 
+            set MODEL_IMPLEMENTATION in global state. Global state is automatically 
+            set upon model initialization. Supported types: ModelImplementationType.KERASHUB, 
+            ModelImplementationType.MAXTEXT
         max_prompt_length (int): Maximum length for the prompt portion of the input. Prompts
             exceeding this length will be truncated. Default: 512.
-        max_seq_len (int): Maximum sequence length for tokenization (default: 1024). Sequences
-            will be padded to this length.
-        custom_formatting_fn（callable): A custom formatting function to apply to the raw
+        max_seq_len (int): Maximum sequence length for tokenization. Sequences will be 
+            padded to this length. Default: 1024.
+        custom_formatting_fn (Optional[Callable]): A custom formatting function to apply to the raw
             sample before any other transformation steps.
     """
 
@@ -52,7 +59,7 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         model_type: Optional["ModelImplementationType"] = "auto",
         max_prompt_length: int = 512,
         max_seq_len: int = 1024,
-        custom_formatting_fn: Optional[callable] = None,
+        custom_formatting_fn: Optional[Callable] = None,
     ):
         super().__init__(
             source=source,
@@ -69,20 +76,23 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             "rejected": "rejected",
         }
         if column_mapping:
-            self.column_mapping = {**self.column_mapping, **column_mapping}
+            self.column_mapping.update(column_mapping)
 
     def task_transform(self, sample: Dict[str, str]) -> Dict[str, str]:
         """Transform the raw sample into a standardized prompt-chosen-rejected format.
+        
+        This method applies any custom formatting and maps input columns to the
+        standardized format expected by the model transformation step.
 
         Args:
-            sample (Dict[str, str]): Raw sample containing prompt, chosen answer,
-                and rejected answer.
+            sample (Dict[str, str]): Raw sample containing prompt, chosen answer, and rejected answer.
 
         Returns:
             Dict[str, str]: Transformed sample with standardized keys.
         """
         if self.custom_formatting_fn:
             sample = self.custom_formatting_fn(sample)
+            
         return {
             "prompt": (
                 sample[self.column_mapping["prompt"]]
@@ -93,31 +103,41 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             "rejected": sample[self.column_mapping["rejected"]],
         }
 
-    def model_transform(self, sample: Dict[str, str]) -> Dict[str, np.ndarray]:
+    def model_transform(self, sample: Dict[str, str]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Transform the prompt-chosen-rejected triple into model inputs.
+        
+        This method tokenizes and formats the data for training, ensuring proper
+        sequence lengths and creating the necessary input tensors.
 
         Args:
             sample (Dict[str, str]): Sample containing "prompt", "chosen", and "rejected" keys.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray]: Tuple containing input_ids,
-            attention_mask, and label_ids.
-            The chosen and rejected tokens will be interleaved:
-                input_ids : [[prompt+chosen], [prompt+rejected], [prompt+chosen],[prompt+rejected]]
-                padding_mask: [[prompt+chosen],  [prompt+rejected], [prompt+chosen],[prompt+rejected]]
-                labels_ids: [[prompt+chosen], [prompt+rejected], [prompt+chosen],[prompt+rejected]]
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: A tuple containing:
+                - input_ids: Array of token IDs with shape [2, sequence_length]
+                - attention_mask: Array indicating non-padding positions
+                - label_ids: Array of target token IDs for computing loss
+            
+            The chosen and rejected tokens will be interleaved as:
+                input_ids: [[prompt+chosen], [prompt+rejected]]
+                attention_mask: [[prompt+chosen], [prompt+rejected]]
+                labels_ids: [[prompt+chosen], [prompt+rejected]]
+                
+            Labels are shifted to predict the next token, with padding in prompt positions.
         """
         prompt, chosen, rejected = (
             sample["prompt"],
             sample["chosen"],
             sample["rejected"],
         )
+        
+        # Tokenize the prompt with a length limit
         prompt_seq = HFtokenize(
             f"<bos>{prompt}", self.tokenizer, seq_len=self.max_prompt_length
         )
-
         num_prompt_tokens = len(prompt_seq["input_ids"][0])
 
+        # Tokenize chosen and rejected responses, leaving room for prompt tokens
         chosen_seq = HFtokenize(
             f"{chosen}<eos>",
             self.tokenizer,
@@ -129,6 +149,7 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             seq_len=self.max_seq_len - num_prompt_tokens,
         )
 
+        # Concatenate prompt with chosen and rejected sequences
         full_chosen_seq_input_ids = np.concatenate(
             [prompt_seq["input_ids"], chosen_seq["input_ids"]]
         )
@@ -143,9 +164,10 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             [prompt_seq["attention_mask"], rejected_seq["attention_mask"]]
         )
 
+        # Stack chosen and rejected sequences
         input_ids = np.concatenate(
             [full_chosen_seq_input_ids, full_rejected_seq_input_ids], axis=1
-        )  # [2, S]
+        )  # [2, sequence_length]
         attention_mask = np.concatenate(
             [full_chosen_seq_mask, full_rejected_seq_mask], axis=1
         )
@@ -153,4 +175,5 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         label_ids = np.roll(input_ids, -1)
         label_ids[:, -1] = self.tokenizer.pad_token_id
         label_ids[:, : num_prompt_tokens - 1] = self.tokenizer.pad_token_id
+        
         return input_ids, attention_mask, label_ids
