@@ -17,14 +17,13 @@ limitations under the License.
 from kithara.dataset.utils import HFtokenize
 import ray
 import numpy as np
-from kithara.dataset.utils import HFtokenize
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Union
 from kithara.dataset.text_completion import TextCompletionDataset
 from transformers import AutoTokenizer
 
 
 class BinaryPreferenceDataset(TextCompletionDataset):
-    """A dataset class for binary preference pptimization tasks, e.g. DPO.
+    """A dataset class for binary preference optimization tasks, e.g. DPO.
 
     Args:
         source (ray.data.Dataset): The source Ray dataset containing the training data.
@@ -36,7 +35,8 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             Please specify model_type or set MODEL_IMPLEMENTATION in global state. Global
             state is automatically set upon model initialization. Supported types:
             ModelImplementationType.KERASHUB, ModelImplementationType.MAXTEXT
-        max_prompt_length: TODO
+        max_prompt_length (int): Maximum length for the prompt portion of the input. Prompts
+            exceeding this length will be truncated. Default: 512.
         max_seq_len (int): Maximum sequence length for tokenization (default: 1024). Sequences
             will be padded to this length.
         custom_formatting_fn（callable): A custom formatting function to apply to the raw
@@ -80,7 +80,6 @@ class BinaryPreferenceDataset(TextCompletionDataset):
 
         Returns:
             Dict[str, str]: Transformed sample with standardized keys.
-
         """
         if self.custom_formatting_fn:
             sample = self.custom_formatting_fn(sample)
@@ -113,25 +112,42 @@ class BinaryPreferenceDataset(TextCompletionDataset):
             sample["chosen"],
             sample["rejected"],
         )
-        full_chosen_seq = HFtokenize(
-            f"<bos>{prompt}{chosen}<eos>", self.tokenizer, seq_len=self.max_seq_len
-        )
-        full_rejected_seq = HFtokenize(
-            f"<bos>{prompt}{rejected}<eos>", self.tokenizer, seq_len=self.max_seq_len
-        )
         prompt_seq = HFtokenize(
-            f"<bos>{prompt}",
-            self.tokenizer,
-            seq_len=self.max_seq_len,
-            padding="do_not_pad",
+            f"<bos>{prompt}", self.tokenizer, seq_len=self.max_prompt_length
         )
+
         num_prompt_tokens = len(prompt_seq["input_ids"][0])
 
+        chosen_seq = HFtokenize(
+            f"{chosen}<eos>",
+            self.tokenizer,
+            seq_len=self.max_seq_len - num_prompt_tokens,
+        )
+        rejected_seq = HFtokenize(
+            f"{rejected}<eos>",
+            self.tokenizer,
+            seq_len=self.max_seq_len - num_prompt_tokens,
+        )
+
+        full_chosen_seq_input_ids = np.concatenate(
+            [prompt_seq["input_ids"], chosen_seq["input_ids"]]
+        )
+        full_rejected_seq_input_ids = np.concatenate(
+            [prompt_seq["input_ids"], rejected_seq["input_ids"]]
+        )
+
+        full_chosen_seq_mask = np.concatenate(
+            [prompt_seq["attention_mask"], chosen_seq["attention_mask"]]
+        )
+        full_rejected_seq_mask = np.concatenate(
+            [prompt_seq["attention_mask"], rejected_seq["attention_mask"]]
+        )
+
         input_ids = np.concatenate(
-            [full_chosen_seq["input_ids"], full_rejected_seq["input_ids"]]
+            [full_chosen_seq_input_ids, full_rejected_seq_input_ids], axis=1
         )  # [2, S]
         attention_mask = np.concatenate(
-            [full_chosen_seq["attention_mask"], full_rejected_seq["attention_mask"]]
+            [full_chosen_seq_mask, full_rejected_seq_mask], axis=1
         )
 
         label_ids = np.roll(input_ids, -1)
