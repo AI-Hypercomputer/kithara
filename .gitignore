@@ -13,4 +13,5 @@ docs/bin/
 docs/lib/
 docs/lib64
 docs/pyvenv.cfg
+wandb/
 
