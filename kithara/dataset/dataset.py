@@ -15,7 +15,7 @@
  """
 
 import ray
-from typing import Any, Iterator, Iterable
+from typing import Any, Iterator, Iterable, Union
 from abc import ABC
 from datasets import Dataset as HF_Dataset, IterableDataset as HF_IterableDataset
 
@@ -26,11 +26,11 @@ class Dataset(Iterable, ABC):
     It supports both regular and streaming Ray datasets.
 
     Args:
-        source (ray.data.Dataset): The underlying Ray dataset to wrap.
+        source (Union[ray.data.Dataset, datasets.Dataset]): The underlying Ray dataset to wrap.
 
     """
 
-    def __init__(self, source: ray.data.Dataset):
+    def __init__(self, source: Union[ray.data.Dataset, HF_Dataset]):
         self.source = self._maybe_convert_to_ray_dataset(source)
         self._length = None
         self._iterator = None

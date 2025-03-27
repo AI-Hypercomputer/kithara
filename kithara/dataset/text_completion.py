@@ -21,7 +21,7 @@ import ray
 from keras.src.backend.common import global_state
 import numpy as np
 from kithara.dataset.utils import HFtokenize
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 from transformers import AutoTokenizer
 
 
@@ -30,7 +30,8 @@ class TextCompletionDataset(Dataset):
     A dataset class for standard text completion tasks.
 
     Args:
-        source (ray.data.Dataset): The source Ray dataset containing the text data.
+        source (ray.data.Dataset| datasets.Dataset): The source Ray or HuggingFace 
+            dataset containing the text data.
         tokenizer: The tokenizer instance to use.
         tokenizer_handle: Handle/name of the tokenizer to load if not provided.
         column_mapping (Optional[Dict]): Mapping of source column name to expected
@@ -50,7 +51,7 @@ class TextCompletionDataset(Dataset):
 
     def __init__(
         self,
-        source: ray.data.Dataset,
+        source: Union[ray.data.Dataset, "datasets.Dataset"],
         tokenizer: AutoTokenizer = None,
         tokenizer_handle: str = None,
         column_mapping: Dict[str, str] = None,

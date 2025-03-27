@@ -1,50 +1,94 @@
 import os
+
 os.environ["KERAS_BACKEND"] = "jax"
-# import subprocess
-# subprocess.run(["pip", "install", "setuptools==61.0"])
 import kithara
 
 import jax
 import ray
-from kithara.rlhf.dpo_loss import dpo_loss_fn
+from kithara.trainer.loss_fn.dpo_loss import dpo_loss_fn
 from kithara.model.model import (
     create_model_from_config,
     create_optimizer_from_config,
     ModelConfig,
+    OptimizerConfig,
 )
 from dataclasses import dataclass
+from typing import Union
+from kithara.distributed.sharding.utils import (
+    entire_tree_is_sharded,
+    is_not_sharded_and_is_large,
+    get_size_in_mb,
+    get_size_in_gb,
+)
+from kithara.optimizers import convert_to_kithara_optimizer
+from kithara.callbacks import Profiler, Checkpointer
+from typing import Any, Union, List, Tuple
+import numpy as np
+import keras
+import sys
+from functools import partial
+import optax
+
 
 @dataclass
 class DPOConfig:
-    policy_model: ModelConfig
+    policy_model: Union[ModelConfig, kithara.Model]
+    optimizer: Union[
+        OptimizerConfig,
+        keras.Optimizer,
+        optax.GradientTransformation,
+        optax.GradientTransformationExtraArgs,
+    ]
     beta: float = 0.1
+    run_mpmd: bool = False
 
 
 class DPOPolicyModel:
     def __init__(self, dpo_config: DPOConfig):
         self.dpo_config = dpo_config
-        model_config = dpo_config.policy_model
-        self.model, self.mask_key, self.token_key = create_model_from_config(
-            model_config
+        self.model, self.mask_key, self.token_key, self.optimizer = (
+            self.create_model_and_optimizer()
         )
-        self.optimizer = create_optimizer_from_config(model_config)
-        self.optimizer.build(self.model.trainable_variables)
         self.model.optimizer = self.optimizer
-        self._compute_loss_and_update_fn = jax.jit(
-            self._compute_loss_and_update, donate_argnums=(0,)
-        )
+        if dpo_config.run_mpmd:
+            self._validate_memory_usage()
+
+    def create_model_and_optimizer(self):
+        if isinstance(self.dpo_config.policy_model, ModelConfig):
+            model, mask_key, token_key = create_model_from_config(
+                self.dpo_config.policy_model
+            )
+        else:
+            model, mask_key, token_key = (
+                self.dpo_config.policy_model,
+                self.dpo_config.policy_model.mask_key,
+                self.dpo_config.policy_model.token_key,
+            )
+
+        if isinstance(self.dpo_config.optimizer, OptimizerConfig):
+            optimizer = create_optimizer_from_config(self.dpo_config.optimizer)
+        else:
+            optimizer = self.dpo_config.optimizer
+
+        if isinstance(optimizer, keras.optimizers.Optimizer):
+            optimizer.build(model.trainable_variables)
+        else:
+            optimizer = convert_to_kithara_optimizer(
+                optimizer, model.trainable_variables
+            )
+        return model, mask_key, token_key, optimizer
 
     def get_logits(self, batch):
-        logits = self.model.get_logits(batch["x"])
+        logits = self.model.forward(batch["x"])
         return logits
 
     def get_ref_logits(self, batch):
-
         self.model.disable_lora()
-        logits = self.model.get_logits(batch["x"])
+        logits = self.model.forward(batch["x"])
         self.model.enable_lora()
         return logits
 
+    @partial(jax.jit, static_argnums=(0,), donate_argnums=(1,))
     def _compute_loss_and_update(self, state, ref_logits, batch):
         """Stateless update"""
 
@@ -57,16 +101,16 @@ class DPOPolicyModel:
                 non_trainable_variables,
                 batch["x"],
             )
-            loss = dpo_loss_fn(
+            loss, metrics = dpo_loss_fn(
                 logits,
                 ref_logits,
                 batch["x"][self.mask_key],
                 batch["x"][self.token_key],
                 beta=self.dpo_config.beta,
             )
-            return loss, non_trainable_variables
+            return loss, (metrics, non_trainable_variables)
 
-        (loss, non_trainable_variables), grads = jax.value_and_grad(
+        (loss, (metrics, non_trainable_variables)), grads = jax.value_and_grad(
             loss_fn, has_aux=True
         )(trainable_variables, non_trainable_variables, ref_logits, batch)
 
@@ -76,15 +120,18 @@ class DPOPolicyModel:
             trainable_variables,
         )
 
-        return loss, (trainable_variables, non_trainable_variables, optimizer_variables)
+        return loss, metrics, (trainable_variables, non_trainable_variables, optimizer_variables)
 
     def compute_loss_and_update(self, batch, ref_logits):
+        """stateful update"""
         state = (
             self.model.trainable_variables,
             self.model.non_trainable_variables,
             self.optimizer.variables,
         )
-        loss, state = self._compute_loss_and_update_fn(state, ref_logits, batch)
+        self._validate_sharding_correctness(batch, state)
+        loss, metrics, state = self._compute_loss_and_update(state, ref_logits, batch)
+        print("metrics", metrics)
         self.model.update_model_state(*state)
         return loss
 
@@ -92,11 +139,124 @@ class DPOPolicyModel:
         """Generate text using the model"""
         return self.model.generate(*args, **kwargs)
 
+    def trainable_params_stats(self):
+        return self.model.trainable_params_stats()
+    
+    def _validate_sharding_correctness(self, data, state):
+        """This method performs several sharding correctness checks and prints
+        warnings for any sharding issues detected.
+
+        1. Checks if data is properly sharded
+        2. Validates sharding of trainable variables
+        3. Validates sharding of non-trainable variables
+        4. Validates sharding of optimizer variables
+
+        Args:
+            data: Input batch to validate
+            state: Current model state tuple
+
+        """
+        try:
+            if not entire_tree_is_sharded(data):
+                print(
+                    "Warning: data is not sharded",
+                    data["y"].shape,
+                    data["y"].sharding,
+                )
+            for variable, value in zip(self.model.trainable_variables, state[0]):
+                if is_not_sharded_and_is_large(value):
+                    print(
+                        f"Step {self.step_count}: trainable variable is not sharded",
+                        f"{get_size_in_mb(value)}mb",
+                        variable.path,
+                        value.shape,
+                        value.sharding,
+                    )
+            for variable, value in zip(self.model.non_trainable_variables, state[1]):
+                if is_not_sharded_and_is_large(value):
+                    print(
+                        f"Step {self.step_count}: nontrainable variable is not sharded",
+                        f"{get_size_in_mb(value)}mb",
+                        variable.path,
+                        value.shape,
+                        value.sharding,
+                    )
+
+            _ = jax.tree.map(
+                lambda variable, value: (
+                    print(
+                        f"Step {self.step_count}: optimizer variable is not sharded",
+                        f"{get_size_in_mb(value)}mb",
+                        variable.path,
+                        value.shape,
+                        value.sharding,
+                    )
+                    if is_not_sharded_and_is_large(value)
+                    else None
+                ),
+                self.optimizer.variables,
+                state[2],
+            )
+
+        except Exception as e:
+            print(f"Error during sharding correctness validation: {e}")
+
+    def _validate_memory_usage(self):
+        """This method checks the current HBM usage matches the expected HBM
+        usage.
+
+        Current HBM usage is calculated by summing the size of all live arrays,
+        expected HBM usage is calculated by summing the size of all model and
+        optimizer variables.
+        """
+
+        total_size = 0
+        for v in self.model.variables:
+            total_size += get_size_in_mb(v.value)
+
+        total_size += jax.tree.reduce(
+            lambda agg, leaf: jax.numpy.add(agg, get_size_in_mb(leaf.value)),
+            self.optimizer.variables,
+            initializer=0,
+        )
+
+        live_arrays = jax.live_arrays()
+        live_arrays_size = 0
+        for v in live_arrays:
+            live_arrays_size += get_size_in_mb(v)
+
+        if not np.isclose(total_size, live_arrays_size, atol=1.0):
+            print(
+                f"WARNING: Potential memory leakage. HBM usage is {live_arrays_size:.3f} MB "
+                f"but model and optimizer are only {total_size:.3f} MB in size."
+            )
+        else:
+            print(
+                f"✅ No memory leakage detected. HBM usage ({live_arrays_size:.3f} MB) "
+                f"matches model and optimizer size ({total_size:.3f} MB)."
+            )
+
+        try:
+            memory_info = jax.local_devices()[0].memory_stats()
+            memory_per_device_mb = memory_info["bytes_limit"] / (1024**2)
+            total_memory = memory_per_device_mb * jax.device_count()
+            print(
+                f"Total memory available is {total_memory:.3f} MB, if you run into "
+                "errors, check if your memory usage is close to the limit, and either "
+                "reduce your per-device batch size or sequence length."
+            )
+        except Exception as e:
+            # memory_info is not available on some TPUs
+            pass
+
 
 class DPOReferenceModel:
     def __init__(self, dpo_config: DPOConfig):
 
-        self.model, *_ = create_model_from_config(dpo_config.policy_model)
+        if isinstance(dpo_config.policy_model, ModelConfig):
+            self.model, *_ = create_model_from_config(dpo_config.policy_model)
+        else:
+            self.model = dpo_config.policy_model
 
     def get_logits(self, batch):
         logits = self.model.get_logits(batch["x"])
@@ -106,30 +266,79 @@ class DPOReferenceModel:
         """Generate text using the model"""
         return self.model.generate(*args, **kwargs)
 
+    def trainable_params_stats(self):
+        return self.model.trainable_params_stats()
+
 
 RayDPOPolicyModel = ray.remote(DPOPolicyModel)
 RayDPOReferenceModel = ray.remote(DPOReferenceModel)
 
 
 class DPOTrainer:
+    """
+    DPOTrainer may be initialized on a TPU or CPU.
+    When running in mpmd mode, DPOTrainer is initialized on CPU, and dispatches tasks to TPUs
+    When running in spmd mode, DPOTrainer is initialized and run on TPU.
+
+    """
+
     def __init__(
         self,
         dpo_config: DPOConfig,
         train_dataloader: kithara.Dataloader,
         eval_dataloader: kithara.Dataloader = None,
-        run_mpmd: bool = False,
         steps: int = 100,
+        epochs=None,
+        log_steps_interval=1,
+        eval_steps_interval=None,
+        eval_epochs_interval=None,
+        max_eval_samples=sys.maxsize,
+        tensorboard_dir=None,
+        profiler: Profiler = None,
+        checkpointer: Checkpointer = None,
     ):
+        if steps is None and epochs is None:
+            epochs = 1
+        if (
+            (eval_dataloader is not None)
+            and (eval_steps_interval is None)
+            and (eval_epochs_interval is None)
+        ):
+            eval_epochs_interval = 1
+
+        # Core components
         self.dpo_config = dpo_config
+        self.policy_model, self.ref_model = self.init_models()
         self.train_dataloader = train_dataloader
         self.eval_dataloader = eval_dataloader
-        self.run_mpmd = run_mpmd
+        self.run_mpmd = dpo_config.run_mpmd
+
+        # Training parameters
         self.steps = steps
+        self.epochs = epochs
         self.step_count = 0
-        self.policy_model, self.ref_model = self.init_models()
+        self.epoch_count = 0
+        self.eval_steps_interval = eval_steps_interval
+        self.eval_epochs_interval = eval_epochs_interval
+        self.max_eval_samples = max_eval_samples
+        self.log_steps_interval = log_steps_interval
+        self.global_batch_size = train_dataloader.global_batch_size
+        self.device_count = jax.device_count()
+        self._validate_setup()
+
+        # Callbacks
+        self.profiler = profiler  # TODO: support profiling
+        self.checkpointer = checkpointer  # TODO: support checkpointer
+        self.tensorboard_dir = tensorboard_dir  # TODO: support tensorboard_dir
+        # self.callbacks = self._create_callbacks()
+
+        # Print summary
+        self._print_run_summary()
+        if dpo_config.run_mpmd is False:
+            self._validate_memory_usage()
 
     def init_models(self):
-        if self.run_mpmd:
+        if self.dpo_config.run_mpmd:
             resources = {"TPU": 4}
             policy_model = RayDPOPolicyModel.options(**resources).remote(
                 self.dpo_config
@@ -138,7 +347,7 @@ class DPOTrainer:
             policy_model = DPOPolicyModel(self.dpo_config)
 
         if self.dpo_config.policy_model.lora_rank is None:
-            if self.run_mpmd:
+            if self.dpo_config.run_mpmd:
                 resources = {"TPU": 4}
                 ref_model = DPOReferenceModel.options(**resources).remote(
                     self.dpo_config
@@ -192,3 +401,134 @@ class DPOTrainer:
 
             self.step_count += 1
             print("loss", loss)
+
+    def _print_run_summary(self):
+
+        training_duration = (
+            f"Steps = {self.steps:,}" if self.steps else f"Epochs = {self.epochs}"
+        )
+        if self.dpo_config.run_mpmd:
+            trainable_params, total_params, trainable_params_percent = ray.get(
+                self.policy_model.trainable_params_stats.remote()
+            )
+        else:
+            trainable_params, total_params, trainable_params_percent = (
+                self.policy_model.trainable_params_stats()
+            )
+
+        if self.ref_model:
+            if self.dpo_config.run_mpmd:
+                _, ref_total_params, _ = ray.get(
+                    self.ref_model.trainable_params_stats.remote()
+                )
+            else:
+                _, ref_total_params, _ = self.ref_model.trainable_params_stats()
+            total_params += ref_total_params
+        else:
+            ref_total_params = "Using PEFT Model"
+        logo_with_key_stats = (
+            f"       '==='\n"
+            f"        |||\n"
+            f"     '- ||| -'\n"
+            f"    /  |||||  \\   Kithara DPO| Device Count = {self.device_count}\n"
+            f"   |   (|||)   |  {training_duration} | Batch size per device = {self.global_batch_size // self.device_count}\n"
+            f"   |   |◕‿◕|   |  Global batch size = {self.global_batch_size} | Total policy parameters = {total_params:.3f}(GB) | Total reference parameters = {ref_total_params} (GB)\n"
+            f"    \\  |||||  /   Trainable parameters = {trainable_params:.3f}(GB) ({trainable_params_percent}%) | Non-trainable = {total_params - trainable_params:.3f}(GB)\n"
+            f"     --|===|--   "
+        )
+        print(logo_with_key_stats)
+
+        # TODO: Implement more structured logging
+        for attr_name, attr_value in vars(self).items():
+            print(attr_name, attr_value)
+
+    def _create_callbacks(self):
+        callbacks = []
+        if self.tensorboard_dir and isinstance(
+            self.optimizer, keras.optimizers.Optimizer
+        ):
+            callbacks.append(
+                keras.callbacks.TensorBoard(
+                    log_dir=self.tensorboard_dir,
+                    update_freq="batch",
+                    write_steps_per_second=True,
+                )
+            )
+        if self.profiler:
+            callbacks.append(self.profiler)
+        if self.checkpointer:
+            callbacks.append(self.checkpointer)
+
+        return keras.callbacks.CallbackList(callbacks, model=self.model)
+
+    def _validate_setup(self):
+        assert (
+            self.max_eval_samples >= self.global_batch_size
+        ), "Number of eval examples must be greater or equal to global batch size"
+
+        assert not (
+            (
+                self.eval_steps_interval is not None
+                or self.eval_epochs_interval is not None
+            )
+            and self.eval_dataloader is None
+        ), "Evaluation interval is set but no evaluation dataloader is provided"
+
+        assert (
+            self.steps is None or self.epochs is None
+        ), "Specify either steps or epochs, not both"
+
+        assert (self.eval_steps_interval is None) or (
+            self.eval_epochs_interval is None
+        ), "Specify either eval_steps_interval or eval_epochs_interval, not both"
+
+    def _validate_memory_usage(self):
+        """This method checks the current HBM usage matches the expected HBM
+        usage.
+
+        Current HBM usage is calculated by summing the size of all live arrays,
+        expected HBM usage is calculated by summing the size of all model and
+        optimizer variables.
+        """
+
+        total_size = 0
+        for v in self.policy_model.model.variables:
+            total_size += get_size_in_mb(v.value)
+        if self.ref_model:
+            for v in self.ref_model.model.variables:
+                total_size += get_size_in_mb(v.value)
+
+        total_size += jax.tree.reduce(
+            lambda agg, leaf: jax.numpy.add(agg, get_size_in_mb(leaf.value)),
+            self.policy_model.optimizer.variables,
+            initializer=0,
+        )
+
+        live_arrays = jax.live_arrays()
+        live_arrays_size = 0
+        for v in live_arrays:
+            live_arrays_size += get_size_in_mb(v)
+
+        if not np.isclose(total_size, live_arrays_size, atol=1.0):
+            print(
+                f"WARNING: Potential memory leakage. HBM usage is {live_arrays_size:.3f} MB "
+                f"but model and optimizer are only {total_size:.3f} MB in size."
+            )
+        else:
+            print(
+                f"✅ No memory leakage detected. HBM usage ({live_arrays_size:.3f} MB) "
+                f"matches model and optimizer size ({total_size:.3f} MB)."
+            )
+
+        try:
+            memory_info = jax.local_devices()[0].memory_stats()
+            memory_per_device_mb = memory_info["bytes_limit"] / (1024**2)
+            total_memory = memory_per_device_mb * jax.device_count()
+            print(
+                f"Total memory available is {total_memory:.3f} MB, if you run into "
+                "errors, check if your memory usage is close to the limit, and either "
+                "reduce your per-device batch size or sequence length."
+            )
+        except Exception as e:
+            # memory_info is not available on some TPUs
+            pass

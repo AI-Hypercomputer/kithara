@@ -22,7 +22,6 @@ import time
 import sys
 import jax
 import optax
-from dataclasses import dataclass
 from kithara.distributed.sharding.utils import (
     entire_tree_is_sharded,
     is_not_sharded_and_is_large,
@@ -33,10 +32,7 @@ from kithara.optimizers import convert_to_kithara_optimizer
 from kithara.model import Model
 from kithara.dataset import Dataloader
 from kithara.callbacks import Profiler, Checkpointer
-from kithara.distributed.sharding._data_sharding import DataSharding
-from keras.src.backend.common import global_state
 from typing import Any, Union, List, Tuple
-import jax.tree_util as jtu
 import numpy as np
 
 
@@ -266,7 +262,7 @@ class Trainer:
                 epoch_loss += loss
                 batches_seen_in_epoch += 1
 
-                self._update_model_with_state(state)
+                self.model.update_model_state(state)
 
                 # Wait for computation to complete for accurate step time
                 jax.block_until_ready(loss)
@@ -477,10 +473,11 @@ class Trainer:
         return eval_loss
 
     def _make_train_step(self):
-        return jax.jit(self._train_step, donate_argnums=(0,))
+        #DO NOT SUBMIT test this
+        return jax.jit(self._train_step, static_argnums=(0,) ,donate_argnums=(1,))
 
     def _make_eval_step(self):
-        return jax.jit(self._eval_step, donate_argnums=(0,))
+        return jax.jit(self._eval_step, static_argnums=(0,) , donate_argnums=(0,))
 
     def _get_jax_state(
         self,
@@ -497,25 +494,6 @@ class Trainer:
             return tuple(state)
         state.append(jax.tree.map(lambda leaf: leaf.value, self.optimizer.variables))
         return tuple(state)
-
-    def _update_model_with_state(self, state):
-        """Update model internal parameters with the provided state."""
-        trainable_variables, non_trainable_variables, optimizer_variables, *_ = state
-        for variable, value in zip(self.model.trainable_variables, trainable_variables):
-            value = jax.lax.with_sharding_constraint(value, variable._layout)
-            variable.assign(value)
-        for variable, value in zip(
-            self.model.non_trainable_variables, non_trainable_variables
-        ):
-            value = jax.lax.with_sharding_constraint(value, variable._layout)
-            variable.assign(value)
-
-        _ = jax.tree.map(
-            lambda variable, value: variable.assign(
-                jax.lax.with_sharding_constraint(value, variable._layout)),
-            self.optimizer.variables,
-            optimizer_variables,
-        )
 
 
     def _print_run_summary(self):
@@ -536,7 +514,7 @@ class Trainer:
             f"     '- ||| -'\n"
             f"    /  |||||  \\   Kithara | Device Count = {self.device_count}\n"
             f"   |   (|||)   |  {training_duration} | Batch size per device = {self.global_batch_size // self.device_count}\n"
-            f"   |   |◕‿◕|   |  Total batch size = {self.global_batch_size} | Total parameters = {total_params:.3f}(GB)\n"
+            f"   |   |◕‿◕|   |  Global batch size = {self.global_batch_size} | Total parameters = {total_params:.3f}(GB)\n"
             f"    \\  |||||  /   Trainable parameters = {trainable_params:.3f}(GB) ({trainable_params_percent}%) | Non-trainable = {total_params - trainable_params:.3f}(GB)\n"
             f"     --|===|--   "
         )

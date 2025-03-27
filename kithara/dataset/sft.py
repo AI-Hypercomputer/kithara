@@ -17,8 +17,7 @@
 from kithara.dataset.utils import HFtokenize
 import ray
 import numpy as np
-from kithara.dataset.utils import HFtokenize
-from typing import Dict, Any, Optional
+from typing import Dict, Union, Optional
 from kithara.dataset.text_completion import TextCompletionDataset
 from transformers import AutoTokenizer
 
@@ -27,7 +26,8 @@ class SFTDataset(TextCompletionDataset):
     """A dataset class for Supervised Fine-Tuning (SFT) tasks.
 
     Args:
-        source (ray.data.Dataset): The source Ray dataset containing the training data.
+        source (ray.data.Dataset| datasets.Dataset): The source Ray or HuggingFace 
+            dataset containing the training data.
         tokenizer (Optional[AutoTokenizer]): HuggingFace tokenizer instance.
         tokenizer_handle (Optional[str]): Handle/name of the tokenizer to load if not provided.
         column_mapping (Optional[Dict[str, str]]): Mapping of source column names to expected
@@ -44,7 +44,7 @@ class SFTDataset(TextCompletionDataset):
 
     def __init__(
         self,
-        source: ray.data.Dataset,
+        source: Union[ray.data.Dataset, "datasets.Dataset"],
         tokenizer: Optional[AutoTokenizer] = None,
         tokenizer_handle: Optional[str] = None,
         column_mapping: Optional[Dict[str, str]] = None,

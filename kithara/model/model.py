@@ -28,6 +28,8 @@ from kithara.distributed.sharding.utils import (
 )
 from kithara.dataset.utils import initialize_tokenizer
 from dataclasses import dataclass
+from kithara.distributed.sharding.utils import get_size_in_gb
+from functools import partial
 
 class ModelImplementationType(str, Enum):
 
@@ -108,8 +110,6 @@ class Model(ABC, ModelValidationMixin):
         # This will be automatically set during training.
         self._optimizer = None
 
-        self.jitted_forward = jax.jit(self._forward)
-
     @property
     def variables(self):
         return self.model.variables
@@ -146,6 +146,15 @@ class Model(ABC, ModelValidationMixin):
             return precision.split("_")[1]
         return precision
 
+    def trainable_params_stats(self):
+        trainable_params = sum(
+            get_size_in_gb(v.value) for v in self.trainable_variables
+        )
+        total_params = trainable_params + sum(
+            get_size_in_gb(v.value) for v in self.non_trainable_variables
+        )
+        trainable_params_percent = round((trainable_params / total_params) * 100, 2)
+        return trainable_params, total_params, trainable_params_percent
     @abstractmethod
     def save_in_hf_format(
         self, output_dir: str, dtype: str = "auto", parallel_threads=8
@@ -159,8 +168,9 @@ class Model(ABC, ModelValidationMixin):
             dtype (str, optional): Data type for saved weights. Defaults to "auto".
             parallel_threads (int, optional): Number of parallel threads to use for saving.
         """
-
-    def _forward(self, trainable_vars, non_trainable_vars, inputs):
+    
+    @partial(jax.jit, static_argnums=(0,))
+    def stateless_forward(self, trainable_vars, non_trainable_vars, inputs):
         logits, _ = self.model.stateless_call(
             trainable_vars,
             non_trainable_vars,
@@ -168,14 +178,12 @@ class Model(ABC, ModelValidationMixin):
         )
         return logits
 
-    def get_logits(self, inputs):
-
-        logits = self.jitted_forward(
+    def forward(self, inputs):
+        logits = self.stateless_forward(
             [var.value for var in self.model.trainable_variables],
             [var.value for var in self.model.non_trainable_variables],
             inputs,
         )
-
         return logits
 
     def update_model_state(self, trainable_variables=None, non_trainable_variables=None, optimizer_variables=None):
@@ -193,9 +201,12 @@ class Model(ABC, ModelValidationMixin):
                 variable.assign(value)
         
         if optimizer_variables:
-            for variable, value in zip(self.optimizer.variables, optimizer_variables):
-                value = jax.lax.with_sharding_constraint(value, variable._layout)
-                variable.assign(value)
+            _ = jax.tree.map(
+                lambda variable, value: variable.assign(
+                    jax.lax.with_sharding_constraint(value, variable._layout)),
+                self.optimizer.variables,
+                optimizer_variables,
+            )
 
     @property
     def optimizer(self):
@@ -440,8 +451,13 @@ class ModelConfig:
     precision: str
     per_device_batch_size: int
     seq_len: int
-    optimizer_name: str
+
+
+@dataclass
+class OptimizerConfig:
+    name: str
     learning_rate: float 
+
 
 # TODO: Complete ModelConfig
 def create_model_from_config(config: ModelConfig):
@@ -471,7 +487,7 @@ def create_model_from_config(config: ModelConfig):
     return model, mask_key, token_key
 
 
-def create_optimizer_from_config(config: ModelConfig):
-    if config.optimizer_name == "adamw":
+def create_optimizer_from_config(config: OptimizerConfig):
+    if config.name == "adamw":
         optimizer = keras.optimizers.AdamW(learning_rate=config.learning_rate, weight_decay=0.01)
     return optimizer

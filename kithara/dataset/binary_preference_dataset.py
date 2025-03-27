@@ -14,12 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from typing import Dict, Any, Optional, Tuple, Union, Callable
+from typing import Dict, Any, Optional, Tuple, Callable, Union
 
 import numpy as np
 import ray
-from transformers import AutoTokenizer
-
 from kithara.dataset.text_completion import TextCompletionDataset
 from kithara.dataset.utils import HFtokenize
 
@@ -52,8 +50,8 @@ class BinaryPreferenceDataset(TextCompletionDataset):
 
     def __init__(
         self,
-        source: ray.data.Dataset,
-        tokenizer: Optional[AutoTokenizer] = None,
+        source: Union[ray.data.Dataset, "datasets.Dataset"],
+        tokenizer: Optional["AutoTokenizer"] = None,
         tokenizer_handle: Optional[str] = None,
         column_mapping: Optional[Dict[str, str]] = None,
         model_type: Optional["ModelImplementationType"] = "auto",
@@ -151,27 +149,26 @@ class BinaryPreferenceDataset(TextCompletionDataset):
 
         # Concatenate prompt with chosen and rejected sequences
         full_chosen_seq_input_ids = np.concatenate(
-            [prompt_seq["input_ids"], chosen_seq["input_ids"]]
+            [prompt_seq["input_ids"], chosen_seq["input_ids"]], axis=1
         )
         full_rejected_seq_input_ids = np.concatenate(
-            [prompt_seq["input_ids"], rejected_seq["input_ids"]]
+            [prompt_seq["input_ids"], rejected_seq["input_ids"]], axis=1
         )
-
         full_chosen_seq_mask = np.concatenate(
-            [prompt_seq["attention_mask"], chosen_seq["attention_mask"]]
+            [prompt_seq["attention_mask"], chosen_seq["attention_mask"]], axis=1
         )
         full_rejected_seq_mask = np.concatenate(
-            [prompt_seq["attention_mask"], rejected_seq["attention_mask"]]
+            [prompt_seq["attention_mask"], rejected_seq["attention_mask"]], axis=1
         )
-
+        
         # Stack chosen and rejected sequences
         input_ids = np.concatenate(
-            [full_chosen_seq_input_ids, full_rejected_seq_input_ids], axis=1
+            [full_chosen_seq_input_ids, full_rejected_seq_input_ids]
         )  # [2, sequence_length]
         attention_mask = np.concatenate(
-            [full_chosen_seq_mask, full_rejected_seq_mask], axis=1
+            [full_chosen_seq_mask, full_rejected_seq_mask]
         )
-
+        
         label_ids = np.roll(input_ids, -1)
         label_ids[:, -1] = self.tokenizer.pad_token_id
         label_ids[:, : num_prompt_tokens - 1] = self.tokenizer.pad_token_id
