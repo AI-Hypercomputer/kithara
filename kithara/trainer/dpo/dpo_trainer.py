@@ -9,7 +9,7 @@ import ray
 import keras
 import kithara
 from kithara.model.model import ModelConfig, OptimizerConfig
-from kithara.callbacks import Profiler, Checkpointer
+from kithara.callbacks import Profiler, Checkpointer, CheckpointerConfig, create_checkpointer_from_config
 from kithara.trainer.validation_mixin import ValidationMixin
 from kithara.trainer.dpo.dpo_policy_model import DPOPolicyModel, RayDPOPolicyModel
 from kithara.trainer.dpo.dpo_reference_model import (
@@ -26,12 +26,6 @@ class DPOConfig:
     """Configuration for Direct Preference Optimization (DPO) training."""
 
     policy_model: Union[ModelConfig, kithara.Model]
-    optimizer: Union[
-        OptimizerConfig,
-        keras.Optimizer,
-        "optax.GradientTransformation",
-        "optax.GradientTransformationExtraArgs",
-    ]
     beta: float = 0.1
     label_smoothing: float = 0.0
     run_mpmd: bool = False
@@ -57,7 +51,7 @@ class DPOTrainer(ValidationMixin):
         max_eval_samples: int = sys.maxsize,
         tensorboard_dir: Optional[str] = None,
         profiler: Optional[Profiler] = None,
-        checkpointer: Optional[Checkpointer] = None,
+        checkpointer: Optional[Union[Checkpointer, CheckpointerConfig]] = None,
     ):
         """Initialize the DPO trainer.
 
@@ -125,7 +119,7 @@ class DPOTrainer(ValidationMixin):
         if self.dpo_config.run_mpmd:
             resources = {"TPU": 4}
             policy_model = RayDPOPolicyModel.options(**resources).remote(
-                self.dpo_config
+                self.dpo_config, checkpointer = self.checkpointer
             )
         else:
             policy_model = DPOPolicyModel(self.dpo_config)

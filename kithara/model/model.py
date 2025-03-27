@@ -51,7 +51,7 @@ class ModelValidationMixin:
         if model is None:
             raise ValueError("Model has not been successfully created.")
         print_elements_that_are_unsharded_and_large_in_pytree(model)
-    
+
 
 class Model(ABC, ModelValidationMixin):
     """
@@ -453,31 +453,27 @@ def set_global_model_implementation_type(model_type) -> None:
     global_state.set_global_attribute("MODEL_IMPLEMENTATION", model_type)
 
 
-@dataclass
-class CheckpointerConfig:
-    checkpoint_dir: str
-    use_async: bool = True
-    save_interval_steps: int = 100
-    max_to_keep: int = 5
-    by_batch: bool = True
-    by_epoch: bool = False
-
-
-@dataclass
-class ModelConfig:
-    preset_handle: str
-    model_type: str
-    lora_rank: int
-    precision: str
-    per_device_batch_size: int
-    seq_len: int
-    checkpointer: CheckpointerConfig
-
 
 @dataclass
 class OptimizerConfig:
     name: str
     learning_rate: float
+
+
+@dataclass
+class ModelConfig:
+    preset_handle: str
+    model_type: str = "KerasHub"  # or "MaxText"
+    lora_rank: int = 16
+    precision: str = "mixed_bfloat16"
+    per_device_batch_size: int = 1
+    seq_len: int = 1024
+    optimizer: Union[
+        OptimizerConfig,
+        keras.Optimizer,
+        "optax.GradientTransformation",
+        "optax.GradientTransformationExtraArgs",
+    ] = None
 
 
 # TODO: Complete ModelConfig
@@ -508,19 +504,7 @@ def create_model_from_config(config: ModelConfig):
             "Model type not supported. Must be one of MaxText and KerasHub"
         )
 
-    if config.checkpointer:
-        checkpointer = Checkpointer(
-            checkpoint_dir=config.checkpointer.checkpoint_dir,
-            use_async=config.checkpointer.use_async,
-            save_interval_steps=config.checkpointer.save_interval_steps,
-            max_to_keep=config.checkpointer.max_to_keep,
-            by_batch=config.checkpointer.by_batch,
-            by_epoch=config.checkpointer.by_epoch,
-        )
-    else:
-        checkpointer= None
-
-    return model, mask_key, token_key, checkpointer
+    return model, mask_key, token_key
 
 
 def create_optimizer_from_config(config: OptimizerConfig):

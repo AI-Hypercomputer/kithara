@@ -6,7 +6,8 @@ Blog post: https://www.philschmid.de/dpo-align-llms-in-2024-with-trl
 from transformers import AutoTokenizer
 from datasets import load_dataset
 from kithara.dataset import Dataloader, BinaryPreferenceDataset
-from kithara.trainer.dpo_trainer import ModelConfig, DPOConfig, DPOTrainer
+from kithara.model.model import ModelConfig, OptimizerConfig
+from kithara.trainer.dpo import DPOConfig, DPOTrainer
 
 
 def data_preprocessing():
@@ -73,8 +74,6 @@ def data_preprocessing():
 
 def run_workload():
 
-    from datasets import load_dataset
-
     model_id = "google/gemma-2-2b"
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     # Load jsonl data from disk
@@ -84,27 +83,39 @@ def run_workload():
     dataset = BinaryPreferenceDataset(
         train_dataset,
         tokenizer_handle=model_id,
-        # max_prompt_length=1024, TODO: support
+        max_prompt_length=512,
+        max_seq_len=1024,
+    )
+
+    eval_dataset = BinaryPreferenceDataset(
+        eval_dataset,
+        tokenizer_handle=model_id,
+        max_prompt_length=512,
         max_seq_len=1024,
     )
 
     dataloader = Dataloader(dataset, per_device_batch_size=1)
+    eval_dataloader = Dataloader(eval_dataset, per_device_batch_size=1)
 
     policy_model_config = ModelConfig(
         preset_handle=f"hf://{model_id}",
         model_type="KerasHub",
         lora_rank=16,
-        precision="mixed_bfloat16",
         per_device_batch_size=1,
         seq_len=1024,
-        optimizer_name="adamw",
-        learning_rate=2e-4,
+        optimizer=OptimizerConfig("adamw", learning_rate=2e-4),
     )
 
-    dpo_config = DPOConfig(beta=0.1, policy_model=policy_model_config)
+    dpo_config = DPOConfig(beta=0.1, policy_model=policy_model_config, run_mpmd=False)
 
     dpo_trainer = DPOTrainer(
-        dpo_config=dpo_config, train_dataloader=dataloader, run_mpmd=False, steps=1
+        dpo_config=dpo_config,
+        train_dataloader=dataloader,
+        eval_dataloader=eval_dataloader,
+        steps=10,
+        log_steps_interval=2,
+        eval_steps_interval=5,
+        max_eval_samples=10,
     )
 
     dpo_trainer.train()

@@ -19,8 +19,7 @@ import jax
 import orbax.checkpoint as ocp
 from typing import Optional
 import os
-import ray 
-from kithara.trainer.rlhf import RayModel
+from dataclasses import dataclass
 
 CheckpointManager = ocp.CheckpointManager
 CheckpointManagerOptions = ocp.CheckpointManagerOptions
@@ -203,3 +202,24 @@ class Checkpointer(Callback):
             options=options,
         )
         return mngr
+
+
+@dataclass
+class CheckpointerConfig:
+    checkpoint_dir: str
+    use_async: bool = True
+    save_interval_steps: int = 100
+    max_to_keep: int = 5
+    by_batch: bool = True
+    by_epoch: bool = False
+
+
+def create_checkpointer_from_config(config: CheckpointerConfig):
+    return Checkpointer(
+        checkpoint_dir=config.checkpoint_dir,
+        use_async=config.use_async,
+        save_interval_steps=config.save_interval_steps,
+        max_to_keep=config.max_to_keep,
+        by_batch=config.by_batch,
+        by_epoch=config.by_epoch,
+    )

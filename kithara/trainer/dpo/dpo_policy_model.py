@@ -28,9 +28,10 @@ class DPOPolicyModel(RayModel, ValidationMixin):
             dpo_config: Configuration for DPO training
         """
         self.dpo_config = dpo_config
-        self.model, self.mask_key, self.token_key, self.checkpointer = (
-            self.create_model_and_checkpointer()
+        self.model, self.mask_key, self.token_key = (
+            self.create_model()
         )
+        self.checkpointer = self.create_checkpointer()
         self.optimizer = self.create_optimizer()
         self.model.optimizer = self.optimizer
 
@@ -39,27 +40,27 @@ class DPOPolicyModel(RayModel, ValidationMixin):
                 models=[self.model], optimizers=[self.optimizer]
             )
 
-    def create_model_and_checkpointer(self):
+    def create_model(self):
         """Create model and checkpointer from config or use existing ones."""
         if isinstance(self.dpo_config.policy_model, ModelConfig):
-            model, mask_key, token_key, checkpointer = create_model_from_config(
+            model, mask_key, token_key = create_model_from_config(
                 self.dpo_config.policy_model
             )
         else:
-            model, mask_key, token_key, checkpointer = (
+            model, mask_key, token_key = (
                 self.dpo_config.policy_model,
                 self.dpo_config.policy_model.mask_key,
                 self.dpo_config.policy_model.token_key,
-                self.dpo_config.checkpointer,
             )
-        return model, mask_key, token_key, checkpointer
-
+        return model, mask_key, token_key
+    def create_checkpointer(self):
+        return None
     def create_optimizer(self):
         """Create optimizer from config or use existing one."""
-        if isinstance(self.dpo_config.optimizer, OptimizerConfig):
+        if isinstance(self.dpo_config.policy_model.optimizer, OptimizerConfig):
             optimizer = create_optimizer_from_config(self.dpo_config.optimizer)
         else:
-            optimizer = self.dpo_config.optimizer
+            optimizer = self.dpo_config.policy_model.optimizer
 
         if isinstance(optimizer, keras.optimizers.Optimizer):
             optimizer.build(self.model.trainable_variables)
@@ -174,10 +175,6 @@ class DPOPolicyModel(RayModel, ValidationMixin):
     def generate(self, *args, **kwargs):
         """Generate text using the model."""
         return self.model.generate(*args, **kwargs)
-
-    def save_checkpoint(self, step):
-        """Save a checkpoint at the given step."""
-        self.checkpointer.save(step)
 
     def trainable_params_stats(self):
         """Get statistics about trainable parameters."""
