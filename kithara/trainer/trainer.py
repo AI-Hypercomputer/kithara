@@ -68,7 +68,7 @@ class Trainer:
         tensorboard_dir (str, optional): The directory path for TensorBoard logs. Can be either a
             local directory or a Google Cloud Storage (GCS) path. Defaults to None.
         profiler (kithara.Profiler, optional): A profiler instance for monitoring performance metrics. Defaults to None.
-        wandb_project (str, optional): Name of Weights and Biases project. Defaults to None. When set to None, Weights and Biases wont be enabled.
+        wandb_settings (wandb.Settings, optional): Configuration for Weights and Biases. Defaults to None. When set to None, Weights and Biases wont be enabled.
 
     Methods:
         loss_fn: Returns a JAX-compatible callable that computes the loss value from logits and labels.
@@ -98,7 +98,7 @@ class Trainer:
         tensorboard_dir=None,
         profiler: Profiler = None,
         checkpointer: Checkpointer = None,
-        wandb_project=None,
+        wandb_settings=None,
     ):
         if steps is None and epochs is None:
             epochs = 1
@@ -128,7 +128,7 @@ class Trainer:
         self.global_batch_size = train_dataloader.global_batch_size
         self.profiler = profiler
         self.checkpointer = checkpointer
-        self.wandb_project = wandb_project
+        self.wandb_settings = wandb_settings
         self._validate_setup()
 
         # Initialize optimizer and callbacks
@@ -621,9 +621,9 @@ class Trainer:
                     write_steps_per_second=True,
                 )
             )
-        if self.wandb_project:
+        if self.wandb_settings:
             self.wanb = Wandb(
-                self.wandb_project,
+                settings=self.wandb_settings,
                 learning_rate=self._learning_rate(),
                 epochs=self.epochs,
             )

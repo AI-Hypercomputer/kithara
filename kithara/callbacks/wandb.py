@@ -27,14 +27,14 @@ class Wandb(Callback):
     """Callbacks to send data to Weights and Biases.
 
     Args:
-        wandb_project (str): Weights and Biases API project name.
+        settings (wandb.Settings): Settings to init Weights and Biases with.
         learning_rate (float, optional): Training learning rate. Defaults to None.
         epochs (int, optional): Training epochs. Defaults to None.
     """
 
     def __init__(
         self,
-        wandb_project,
+        settings,
         learning_rate=None,
         epochs=None,
     ):
@@ -46,7 +46,7 @@ class Wandb(Callback):
         if epochs:
             config["epochs"] = epochs
         wandb.init(
-            project=wandb_project,
+            settings=settings,
             config=config,
         )
 
@@ -61,9 +61,4 @@ class Wandb(Callback):
 
     def on_train_batch_end(self, batch, logs=None):
         if logs != None:
-            entry = {}
-            if "loss" in logs.keys():
-                entry["loss"] = logs["loss"]
-            if "acc" in logs.keys():
-                entry["acc"] = logs["acc"]
-            wandb.log(entry)
+            wandb.log(logs)

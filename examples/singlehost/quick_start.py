@@ -40,6 +40,7 @@ from kithara import (
     Trainer,
     SFTDataset,
 )
+from wandb import Settings
 
 config = {
     "model_handle": "hf://google/gemma-2-2b",
@@ -53,7 +54,7 @@ config = {
     "per_device_batch_size": 1,
     "max_eval_samples": 50,
     "learning_rate": 2e-4,
-    "wandb_project": "wandb-test",
+    "wandb_settings": Settings(project="project"),
 }
 
 
@@ -114,7 +115,7 @@ def run_workload():
         eval_steps_interval=config["eval_steps_interval"],
         max_eval_samples=config["max_eval_samples"],
         log_steps_interval=config["log_steps_interval"],
-        wandb_project=config["wandb_project"],
+        wandb_settings=config["wandb_settings"],
     )
 
     # Start training
