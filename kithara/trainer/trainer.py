@@ -1,18 +1,18 @@
 """
- Copyright 2025 Google LLC
+Copyright 2025 Google LLC
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-      https://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- """
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 import os
 
@@ -32,12 +32,13 @@ from kithara.distributed.sharding.utils import (
 from kithara.optimizers import convert_to_kithara_optimizer
 from kithara.model import Model
 from kithara.dataset import Dataloader
-from kithara.callbacks import Profiler, Checkpointer
+from kithara.callbacks import Profiler, Checkpointer, Wandb
 from kithara.distributed.sharding._data_sharding import DataSharding
 from keras.src.backend.common import global_state
 from typing import Any, Union, List, Tuple
 import jax.tree_util as jtu
 import numpy as np
+import wandb
 
 
 class Trainer:
@@ -67,6 +68,7 @@ class Trainer:
         tensorboard_dir (str, optional): The directory path for TensorBoard logs. Can be either a
             local directory or a Google Cloud Storage (GCS) path. Defaults to None.
         profiler (kithara.Profiler, optional): A profiler instance for monitoring performance metrics. Defaults to None.
+        wandb_settings (wandb.Settings, optional): Configuration for Weights and Biases. Defaults to None. When set to None, Weights and Biases wont be enabled.
 
     Methods:
         loss_fn: Returns a JAX-compatible callable that computes the loss value from logits and labels.
@@ -80,7 +82,11 @@ class Trainer:
     def __init__(
         self,
         model: Model,
-        optimizer: keras.Optimizer | optax.GradientTransformation | optax.GradientTransformationExtraArgs,
+        optimizer: (
+            keras.Optimizer
+            | optax.GradientTransformation
+            | optax.GradientTransformationExtraArgs
+        ),
         train_dataloader: Dataloader,
         eval_dataloader: Dataloader = None,
         steps=None,
@@ -92,6 +98,7 @@ class Trainer:
         tensorboard_dir=None,
         profiler: Profiler = None,
         checkpointer: Checkpointer = None,
+        wandb_settings=None,
     ):
         if steps is None and epochs is None:
             epochs = 1
@@ -121,6 +128,7 @@ class Trainer:
         self.global_batch_size = train_dataloader.global_batch_size
         self.profiler = profiler
         self.checkpointer = checkpointer
+        self.wandb_settings = wandb_settings
         self._validate_setup()
 
         # Initialize optimizer and callbacks
@@ -128,7 +136,8 @@ class Trainer:
             self.optimizer.build(self.model.trainable_variables)
         else:
             self.optimizer = convert_to_kithara_optimizer(
-                optimizer, self.model.trainable_variables)
+                optimizer, self.model.trainable_variables
+            )
 
         self.callbacks = self._create_callbacks()
         if self.tensorboard_dir:
@@ -213,7 +222,8 @@ class Trainer:
             trainable_variables, non_trainable_variables, x, y
         )
         trainable_variables, optimizer_variables = self.optimizer.stateless_apply(
-            optimizer_variables, grads, trainable_variables)
+            optimizer_variables, grads, trainable_variables
+        )
         return (
             loss,
             (
@@ -302,9 +312,7 @@ class Trainer:
                     "samples_per_second": round(samples_per_second, 2),
                     "train_steps_per_second": round(1 / step_time, 2),
                     "samples_seen": self.global_batch_size * self.step_count,
-                    "learning_rate": (round(float(self.optimizer.learning_rate.value),7)
-                                      if self.optimizer.learning_rate is not None else None),
-
+                    "learning_rate": self._learning_rate(),
                 }
 
                 # Log progress
@@ -483,6 +491,15 @@ class Trainer:
 
         return eval_loss
 
+    def _learning_rate(self):
+        return (
+            (
+                round(float(self.optimizer.learning_rate.value), 7)
+                if self.optimizer.learning_rate is not None
+                else None
+            ),
+        )
+
     def _make_train_step(self):
         return jax.jit(self._train_step, donate_argnums=(0,))
 
@@ -555,7 +572,8 @@ class Trainer:
 
         _ = jax.tree.map(
             lambda variable, value: variable.assign(
-                jax.lax.with_sharding_constraint(value, variable._layout)),
+                jax.lax.with_sharding_constraint(value, variable._layout)
+            ),
             self.optimizer.variables,
             optimizer_variables,
         )
@@ -593,7 +611,9 @@ class Trainer:
 
     def _create_callbacks(self):
         callbacks = []
-        if self.tensorboard_dir and isinstance(self.optimizer, keras.optimizers.Optimizer):
+        if self.tensorboard_dir and isinstance(
+            self.optimizer, keras.optimizers.Optimizer
+        ):
             callbacks.append(
                 keras.callbacks.TensorBoard(
                     log_dir=self.tensorboard_dir,
@@ -601,6 +621,13 @@ class Trainer:
                     write_steps_per_second=True,
                 )
             )
+        if self.wandb_settings:
+            self.wanb = Wandb(
+                settings=self.wandb_settings,
+                learning_rate=self._learning_rate(),
+                epochs=self.epochs,
+            )
+            callbacks.append(self.wanb)
         if self.profiler:
             callbacks.append(self.profiler)
         if self.checkpointer:
@@ -649,15 +676,20 @@ class Trainer:
                     )
 
             _ = jax.tree.map(
-                lambda variable, value: print(
-                    f"Step {self.step_count}: optimizer variable is not sharded",
-                    f"{get_size_in_mb(value)}mb",
-                    variable.path,
-                    value.shape,
-                    value.sharding,
-                ) if is_not_sharded_and_is_large(value) else None,
+                lambda variable, value: (
+                    print(
+                        f"Step {self.step_count}: optimizer variable is not sharded",
+                        f"{get_size_in_mb(value)}mb",
+                        variable.path,
+                        value.shape,
+                        value.sharding,
+                    )
+                    if is_not_sharded_and_is_large(value)
+                    else None
+                ),
                 self.optimizer.variables,
-                state[2])
+                state[2],
+            )
 
         except Exception as e:
             print(f"Error during sharding correctness validation: {e}")
@@ -676,8 +708,10 @@ class Trainer:
             total_size += get_size_in_mb(v.value)
 
         total_size += jax.tree.reduce(
-            lambda agg, leaf: jax.numpy.add(agg, get_size_in_mb(leaf.value)), self.optimizer.variables,
-            initializer=0)
+            lambda agg, leaf: jax.numpy.add(agg, get_size_in_mb(leaf.value)),
+            self.optimizer.variables,
+            initializer=0,
+        )
 
         live_arrays = jax.live_arrays()
         live_arrays_size = 0
@@ -699,9 +733,11 @@ class Trainer:
             memory_info = jax.local_devices()[0].memory_stats()
             memory_per_device_mb = memory_info["bytes_limit"] / (1024**2)
             total_memory = memory_per_device_mb * jax.device_count()
-            print(f"Total memory available is {total_memory:.3f} MB, if you run into "
+            print(
+                f"Total memory available is {total_memory:.3f} MB, if you run into "
                 "errors, check if your memory usage is close to the limit, and either "
-                "reduce your per-device batch size or sequence length.")
+                "reduce your per-device batch size or sequence length."
+            )
         except Exception as e:
             # memory_info is not available on some TPUs
             pass
