@@ -28,6 +28,8 @@ import keras
 import sys
 from functools import partial
 import optax
+from kithara.trainer.rlhf.raymodel import RayModel
+import time
 
 
 @dataclass
@@ -40,43 +42,50 @@ class DPOConfig:
         optax.GradientTransformationExtraArgs,
     ]
     beta: float = 0.1
+    label_smoothing: float = 0.0
     run_mpmd: bool = False
 
 
-class DPOPolicyModel:
+class DPOPolicyModel(RayModel):
     def __init__(self, dpo_config: DPOConfig):
         self.dpo_config = dpo_config
-        self.model, self.mask_key, self.token_key, self.optimizer = (
-            self.create_model_and_optimizer()
+
+        self.model, self.mask_key, self.token_key, self.checkpointer = (
+            self.create_model_and_checkpointer()
         )
+        self.optimizer = self.create_optimizer()
         self.model.optimizer = self.optimizer
+
         if dpo_config.run_mpmd:
             self._validate_memory_usage()
 
-    def create_model_and_optimizer(self):
+    def create_model_and_checkpointer(self):
         if isinstance(self.dpo_config.policy_model, ModelConfig):
-            model, mask_key, token_key = create_model_from_config(
+            model, mask_key, token_key, checkpointer = create_model_from_config(
                 self.dpo_config.policy_model
             )
         else:
-            model, mask_key, token_key = (
+            model, mask_key, token_key, checkpointer = (
                 self.dpo_config.policy_model,
                 self.dpo_config.policy_model.mask_key,
                 self.dpo_config.policy_model.token_key,
+                self.dpo_config.checkpointer,
             )
+        return model, mask_key, token_key, checkpointer
 
+    def create_optimizer(self):
         if isinstance(self.dpo_config.optimizer, OptimizerConfig):
             optimizer = create_optimizer_from_config(self.dpo_config.optimizer)
         else:
             optimizer = self.dpo_config.optimizer
 
         if isinstance(optimizer, keras.optimizers.Optimizer):
-            optimizer.build(model.trainable_variables)
+            optimizer.build(self.model.trainable_variables)
         else:
             optimizer = convert_to_kithara_optimizer(
-                optimizer, model.trainable_variables
+                optimizer, self.model.trainable_variables
             )
-        return model, mask_key, token_key, optimizer
+        return optimizer
 
     def get_logits(self, batch):
         logits = self.model.forward(batch["x"])
@@ -107,6 +116,7 @@ class DPOPolicyModel:
                 batch["x"][self.mask_key],
                 batch["x"][self.token_key],
                 beta=self.dpo_config.beta,
+                label_smoothing=self.dpo_config.label_smoothing,
             )
             return loss, (metrics, non_trainable_variables)
 
@@ -120,7 +130,40 @@ class DPOPolicyModel:
             trainable_variables,
         )
 
-        return loss, metrics, (trainable_variables, non_trainable_variables, optimizer_variables)
+        return (
+            loss,
+            metrics,
+            (trainable_variables, non_trainable_variables, optimizer_variables),
+        )
+
+    @partial(jax.jit, static_argnums=(0,), donate_argnums=(1,))
+    def _compute_loss(self, state, ref_logits, batch):
+        """Stateless update"""
+
+        trainable_variables, non_trainable_variables, optimizer_variables = state
+
+        def loss_fn(trainable_variables, non_trainable_variables, ref_logits, batch):
+
+            logits, non_trainable_variables = self.model.stateless_call(
+                trainable_variables,
+                non_trainable_variables,
+                batch["x"],
+            )
+            loss, metrics = dpo_loss_fn(
+                logits,
+                ref_logits,
+                batch["x"][self.mask_key],
+                batch["x"][self.token_key],
+                beta=self.dpo_config.beta,
+                label_smoothing=self.dpo_config.label_smoothing,
+            )
+            return loss, (metrics, non_trainable_variables)
+
+        loss, (metrics, non_trainable_variables) = loss_fn(
+            trainable_variables, non_trainable_variables, ref_logits, batch
+        )
+
+        return loss, metrics
 
     def compute_loss_and_update(self, batch, ref_logits):
         """stateful update"""
@@ -131,17 +174,29 @@ class DPOPolicyModel:
         )
         self._validate_sharding_correctness(batch, state)
         loss, metrics, state = self._compute_loss_and_update(state, ref_logits, batch)
-        print("metrics", metrics)
         self.model.update_model_state(*state)
-        return loss
+        return loss, metrics
+
+    def compute_loss(self, batch, ref_logits):
+        """stateful update"""
+        state = (
+            self.model.trainable_variables,
+            self.model.non_trainable_variables,
+            self.optimizer.variables,
+        )
+        loss, metrics = self._compute_loss(state, ref_logits, batch)
+        return loss, metrics
 
     def generate(self, *args, **kwargs):
         """Generate text using the model"""
         return self.model.generate(*args, **kwargs)
 
+    def save_checkpoint(self, step):
+        self.checkpointer.save(step)
+
     def trainable_params_stats(self):
         return self.model.trainable_params_stats()
-    
+
     def _validate_sharding_correctness(self, data, state):
         """This method performs several sharding correctness checks and prints
         warnings for any sharding issues detected.
@@ -250,7 +305,7 @@ class DPOPolicyModel:
             pass
 
 
-class DPOReferenceModel:
+class DPOReferenceModel(RayModel):
     def __init__(self, dpo_config: DPOConfig):
 
         if isinstance(dpo_config.policy_model, ModelConfig):
@@ -330,7 +385,7 @@ class DPOTrainer:
         self.profiler = profiler  # TODO: support profiling
         self.checkpointer = checkpointer  # TODO: support checkpointer
         self.tensorboard_dir = tensorboard_dir  # TODO: support tensorboard_dir
-        # self.callbacks = self._create_callbacks()
+        self.callbacks = self._create_callbacks()
 
         # Print summary
         self._print_run_summary()
@@ -363,8 +418,8 @@ class DPOTrainer:
             ref_logits = self.ref_model.get_logits(batch)
         else:
             ref_logits = self.policy_model.get_ref_logits(batch)
-        loss = self.policy_model.compute_loss_and_update(batch, ref_logits)
-        return loss
+        loss, metrics = self.policy_model.compute_loss_and_update(batch, ref_logits)
+        return loss, metrics
 
     def mpmd_train_step(self, batch):
         # Right now:
@@ -385,22 +440,240 @@ class DPOTrainer:
             batch,
             ref_logits,
         )
-        loss = ray.get(loss_future)
-        return loss
+        loss, metrics = ray.get(loss_future)
+        return loss, metrics
+
+    def spmd_eval_step(self, batch):
+        if self.ref_model:
+            ref_logits = self.ref_model.get_logits(batch)
+        else:
+            ref_logits = self.policy_model.get_ref_logits(batch)
+        loss, metrics = self.policy_model.compute_loss(batch, ref_logits)
+        return loss, metrics
+
+    def mpmd_eval_step(self, batch):
+
+        policy_future = self.policy_model.get_logits.remote(batch)
+        ref_future = self.ref_model.get_logits.remote(batch)
+
+        policy_logits = ray.get(policy_future)
+        ref_logits = ray.get(ref_future)
+
+        loss_future = self.policy_model.compute_loss.remote(
+            batch,
+            ref_logits,
+        )
+        loss, metrics = ray.get(loss_future)
+        return loss, metrics
 
     def train(self):
+        self.callbacks.on_train_begin()
+        # for batch in self.train_dataloader:
+        #     if self.step_count >= self.steps:
+        #         break
 
-        for batch in self.train_dataloader:
-            if self.step_count >= self.steps:
+        #     if self.run_mpmd:
+        #         loss, metrics = self.mpmd_train_step(batch)
+        #     else:
+        #         loss, metrics = self.spmd_train_step(batch)
+
+        #     self.step_count += 1
+        #     print("loss", loss)
+        # Training loop
+        while True:
+            self.epoch_count += 1
+            self.callbacks.on_epoch_begin(self.epoch_count)
+
+            epoch_loss = 0
+            batches_seen_in_epoch = 0
+
+            # Process each batch in the epoch
+            for batch_input in self.train_dataloader:
+                if self.steps and self.step_count >= self.steps:
+                    break
+                self.step_count += 1
+
+                start_time = time.time()
+                self.callbacks.on_train_batch_begin(self.step_count)
+
+                if self.run_mpmd:
+                    loss, metrics = self.mpmd_train_step(batch_input)
+                else:
+                    loss, metrics = self.spmd_train_step(batch_input)
+                    # Wait for computation to complete for accurate step time
+                    jax.block_until_ready(loss)
+
+                epoch_loss += loss
+                batches_seen_in_epoch += 1
+
+                # Calculate training step statistics
+                step_time = time.time() - start_time
+
+                tokens_per_second_per_device = (
+                    self.global_batch_size
+                    * self.train_dataloader.dataset.max_seq_len
+                    / (step_time * self.device_count)
+                )
+
+                samples_per_second = self.global_batch_size / step_time
+
+                step_stats = {
+                    "step": self.step_count,
+                    "loss": round(float(loss), 3),
+                    "step_time": round(step_time, 2),
+                    "epoch": self.epoch_count,
+                    "tokens_per_second_per_device": round(
+                        tokens_per_second_per_device, 1
+                    ),
+                    "tokens_per_second": round(
+                        tokens_per_second_per_device * self.device_count, 1
+                    ),
+                    "samples_per_second": round(samples_per_second, 2),
+                    "train_steps_per_second": round(1 / step_time, 2),
+                    "samples_seen": self.global_batch_size * self.step_count,
+                    **metrics,
+                    # "learning_rate": (round(float(self.optimizer.learning_rate.value),7)
+                    #                   if self.optimizer.learning_rate is not None else None),
+                }
+
+                # Log progress
+                if (
+                    self.step_count == 1
+                    or self.step_count % self.log_steps_interval == 0
+                ):
+                    print(step_stats)
+
+                self.callbacks.on_train_batch_end(self.step_count, step_stats)
+
+                # Step based evaluation
+                if (
+                    (self.eval_dataloader is not None)
+                    and (self.eval_steps_interval is not None)
+                    and (self.step_count % self.eval_steps_interval == 0)
+                ):
+                    self.evaluate()
+
+            # Compute epoch statistics
+            # If no custom loss_fn is supplied, the default *step loss* calculates
+            # the per-token loss (i.e. average of the loss from #non-padding tokens in batch).
+            # The *epoch loss* is simply the average of the step losses. It is not the exact
+            # per-token loss across the epoch, but rather a proxy.
+            epoch_loss = epoch_loss / batches_seen_in_epoch
+            self.callbacks.on_epoch_end(self.epoch_count, {"epoch_loss": epoch_loss})
+            print(
+                f"Train epoch {self.epoch_count} (epoch may be incompete) loss : {epoch_loss}"
+            )
+
+            # Epoch based evaluation
+            if (
+                (self.eval_dataloader is not None)
+                and (self.eval_epochs_interval is not None)
+                and (self.epoch_count % self.eval_epochs_interval == 0)
+            ):
+                self.evaluate()
+
+            # Check termination conditions
+            if self.steps and self.step_count >= self.steps:
+                break
+            if self.epochs and self.epoch_count >= self.epochs:
                 break
 
-            if self.run_mpmd:
-                loss = self.mpmd_train_step(batch)
-            else:
-                loss = self.spmd_train_step(batch)
+        self.callbacks.on_train_end()
 
-            self.step_count += 1
-            print("loss", loss)
+    def evaluate(self):
+        """Execute the evaluation loop on batches of data provided by the
+        `eval_dataloader`.
+
+        This method:
+        1. Processes the evaluation dataset
+        2. Computes model predictions and loss
+        3. Tracks and reports evaluation metrics
+        4. Handles callbacks for monitoring
+
+        Args:
+            state: Optional tuple of model state. If None, current model state is used.
+            Contains (trainable_variables, non_trainable_variables, optimizer_variables)
+        """
+
+        # Initialize evaluation
+        self.callbacks.on_test_begin()
+        eval_loss = 0
+        eval_batches_seen = 0
+        eval_start_time = time.time()
+        # Process each batch in evaluation dataset
+        for step_i, batch_input in enumerate(self.eval_dataloader):
+            if (eval_batches_seen + 1) * self.global_batch_size > self.max_eval_samples:
+                break
+
+            start_time = time.time()
+
+            if self.run_mpmd:
+                loss, metrics = self.mpmd_train_step(batch_input)
+            else:
+                loss, metrics = self.spmd_train_step(batch_input)
+
+            # Accumulate metrics
+            eval_loss += loss
+            eval_batches_seen += 1
+
+            # Logging
+            if (step_i + 1) % self.log_steps_interval == 0:
+
+                jax.block_until_ready(loss)
+
+                step_time = time.time() - start_time
+                samples_per_second = self.global_batch_size / step_time
+
+                tokens_per_second_per_device = (
+                    self.global_batch_size
+                    * self.train_dataloader.dataset.max_seq_len
+                    / (step_time * self.device_count)
+                )
+
+                step_stats = {
+                    "eval_loss": round(float(loss), 3),
+                    "eval_step": step_i,
+                    "step_time": round(step_time, 2),
+                    "tokens_per_second_per_device": round(
+                        tokens_per_second_per_device, 1
+                    ),
+                    "tokens_per_second": round(
+                        tokens_per_second_per_device * self.device_count, 1
+                    ),
+                    "eval_samples_per_second": round(samples_per_second, 2),
+                    "eval_steps_per_second": round(1 / step_time, 2),
+                    **metrics,
+                }
+
+                print(step_stats)
+
+        # Compute final metrics and report results
+        eval_loss = eval_loss / eval_batches_seen
+        eval_time = time.time() - eval_start_time
+
+        tokens_per_second_per_device = (
+            eval_batches_seen
+            * self.global_batch_size
+            * self.train_dataloader.dataset.max_seq_len
+        ) / (eval_time * self.device_count)
+
+        samples_per_second = eval_batches_seen * self.global_batch_size / eval_time
+
+        self.callbacks.on_test_end(
+            {
+                "eval_loss": eval_loss,
+                "eval_samples_seen": eval_batches_seen * self.global_batch_size,
+                "eval_time": eval_time,
+                "tokens_per_second_per_device": tokens_per_second_per_device,
+                "tokens_per_second": tokens_per_second_per_device * self.device_count,
+                "samples_per_second": samples_per_second,
+                "eval_steps_per_second": eval_batches_seen / eval_time,
+            }
+        )
+
+        print(f"Eval loss after {self.step_count} training steps: ", eval_loss)
+
+        return eval_loss
 
     def _print_run_summary(self):
 
@@ -444,22 +717,20 @@ class DPOTrainer:
 
     def _create_callbacks(self):
         callbacks = []
-        if self.tensorboard_dir and isinstance(
-            self.optimizer, keras.optimizers.Optimizer
-        ):
-            callbacks.append(
-                keras.callbacks.TensorBoard(
-                    log_dir=self.tensorboard_dir,
-                    update_freq="batch",
-                    write_steps_per_second=True,
-                )
-            )
-        if self.profiler:
-            callbacks.append(self.profiler)
-        if self.checkpointer:
+        # if self.tensorboard_dir:
+        #     callbacks.append(
+        #         keras.callbacks.TensorBoard(
+        #             log_dir=self.tensorboard_dir,
+        #             update_freq="batch",
+        #             write_steps_per_second=True,
+        #         )
+        #     )
+        # if self.profiler:
+        #     callbacks.append(self.profiler)
+        if self.checkpointer and not self.dpo_config.run_mpmd:
             callbacks.append(self.checkpointer)
 
-        return keras.callbacks.CallbackList(callbacks, model=self.model)
+        return keras.callbacks.CallbackList(callbacks, model=self.policy_model)
 
     def _validate_setup(self):
         assert (
