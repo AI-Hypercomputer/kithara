@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Any, List, Union
 from keras.src.backend.common import global_state
 from keras.distribution import set_distribution
+from kithara.callbacks.checkpointer import Checkpointer
 from kithara.distributed.sharding import ShardingStrategy
 from kithara.distributed.sharding.utils import (
     print_elements_that_are_unsharded_and_large_in_pytree,
@@ -30,6 +31,7 @@ from kithara.dataset.utils import initialize_tokenizer
 from dataclasses import dataclass
 from kithara.distributed.sharding.utils import get_size_in_gb
 from functools import partial
+
 
 class ModelImplementationType(str, Enum):
 
@@ -49,7 +51,7 @@ class ModelValidationMixin:
         if model is None:
             raise ValueError("Model has not been successfully created.")
         print_elements_that_are_unsharded_and_large_in_pytree(model)
-
+    
 
 class Model(ABC, ModelValidationMixin):
     """
@@ -113,7 +115,7 @@ class Model(ABC, ModelValidationMixin):
     @property
     def variables(self):
         return self.model.variables
-    
+
     @property
     def trainable_variables(self):
         return self.model.trainable_variables
@@ -123,7 +125,7 @@ class Model(ABC, ModelValidationMixin):
         return self.model.non_trainable_variables
 
     def summary(self, *args, **kwargs):
-        return self.model.summary( *args, **kwargs)
+        return self.model.summary(*args, **kwargs)
 
     def __getattr__(self, name):
         try:
@@ -155,6 +157,7 @@ class Model(ABC, ModelValidationMixin):
         )
         trainable_params_percent = round((trainable_params / total_params) * 100, 2)
         return trainable_params, total_params, trainable_params_percent
+
     @abstractmethod
     def save_in_hf_format(
         self, output_dir: str, dtype: str = "auto", parallel_threads=8
@@ -168,7 +171,7 @@ class Model(ABC, ModelValidationMixin):
             dtype (str, optional): Data type for saved weights. Defaults to "auto".
             parallel_threads (int, optional): Number of parallel threads to use for saving.
         """
-    
+
     @partial(jax.jit, static_argnums=(0,))
     def stateless_forward(self, trainable_vars, non_trainable_vars, inputs):
         logits, _ = self.model.stateless_call(
@@ -186,24 +189,32 @@ class Model(ABC, ModelValidationMixin):
         )
         return logits
 
-    def update_model_state(self, trainable_variables=None, non_trainable_variables=None, optimizer_variables=None):
+    def update_model_state(
+        self,
+        trainable_variables=None,
+        non_trainable_variables=None,
+        optimizer_variables=None,
+    ):
         """Update model internal parameters with the provided state."""
         if trainable_variables:
-            for variable, value in zip(self.model.trainable_variables, trainable_variables):
+            for variable, value in zip(
+                self.model.trainable_variables, trainable_variables
+            ):
                 value = jax.lax.with_sharding_constraint(value, variable._layout)
                 variable.assign(value)
-        
+
         if non_trainable_variables:
             for variable, value in zip(
                 self.model.non_trainable_variables, non_trainable_variables
             ):
                 value = jax.lax.with_sharding_constraint(value, variable._layout)
                 variable.assign(value)
-        
+
         if optimizer_variables:
             _ = jax.tree.map(
                 lambda variable, value: variable.assign(
-                    jax.lax.with_sharding_constraint(value, variable._layout)),
+                    jax.lax.with_sharding_constraint(value, variable._layout)
+                ),
                 self.optimizer.variables,
                 optimizer_variables,
             )
@@ -442,6 +453,15 @@ def set_global_model_implementation_type(model_type) -> None:
     global_state.set_global_attribute("MODEL_IMPLEMENTATION", model_type)
 
 
+@dataclass
+class CheckpointerConfig:
+    checkpoint_dir: str
+    use_async: bool = True
+    save_interval_steps: int = 100
+    max_to_keep: int = 5
+    by_batch: bool = True
+    by_epoch: bool = False
+
 
 @dataclass
 class ModelConfig:
@@ -451,18 +471,20 @@ class ModelConfig:
     precision: str
     per_device_batch_size: int
     seq_len: int
+    checkpointer: CheckpointerConfig
 
 
 @dataclass
 class OptimizerConfig:
     name: str
-    learning_rate: float 
+    learning_rate: float
 
 
 # TODO: Complete ModelConfig
 def create_model_from_config(config: ModelConfig):
     if config.model_type == "KerasHub":
         from kithara.model.kerashub import KerasHubModel
+
         model = KerasHubModel.from_preset(
             config.preset_handle,
             lora_rank=config.lora_rank,
@@ -472,6 +494,7 @@ def create_model_from_config(config: ModelConfig):
         token_key = "token_ids"
     elif config.model_type == "MaxText":
         from kithara.model.maxtext import MaxTextModel
+
         model = MaxTextModel.from_preset(
             config.preset_handle,
             precision=config.precision,
@@ -484,10 +507,25 @@ def create_model_from_config(config: ModelConfig):
         raise ValueError(
             "Model type not supported. Must be one of MaxText and KerasHub"
         )
-    return model, mask_key, token_key
+
+    if config.checkpointer:
+        checkpointer = Checkpointer(
+            checkpoint_dir=config.checkpointer.checkpoint_dir,
+            use_async=config.checkpointer.use_async,
+            save_interval_steps=config.checkpointer.save_interval_steps,
+            max_to_keep=config.checkpointer.max_to_keep,
+            by_batch=config.checkpointer.by_batch,
+            by_epoch=config.checkpointer.by_epoch,
+        )
+    else:
+        checkpointer= None
+
+    return model, mask_key, token_key, checkpointer
 
 
 def create_optimizer_from_config(config: OptimizerConfig):
     if config.name == "adamw":
-        optimizer = keras.optimizers.AdamW(learning_rate=config.learning_rate, weight_decay=0.01)
+        optimizer = keras.optimizers.AdamW(
+            learning_rate=config.learning_rate, weight_decay=0.01
+        )
     return optimizer

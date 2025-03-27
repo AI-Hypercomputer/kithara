@@ -34,9 +34,9 @@ from kithara.dataset import Dataloader
 from kithara.callbacks import Profiler, Checkpointer
 from typing import Any, Union, List, Tuple
 import numpy as np
+from kithara.trainer.validation_mixin import ValidationMixin
 
-
-class Trainer:
+class Trainer(ValidationMixin):
     """
     A Trainer class for training and evaluating Kithara models. This base class is designed to be
     subclassed for implementing custom training objectives.
@@ -255,7 +255,11 @@ class Trainer:
                 start_time = time.time()
                 self.callbacks.on_train_batch_begin(self.step_count)
 
-                self._validate_sharding_correctness(batch_input, state)
+                self._validate_sharding_correctness(
+                    data=batch_input,
+                    model=self.model,
+                    optimizer=self.optimizer,
+                )
 
                 # Execute training step
                 loss, state = self.train_step(state, batch_input)
@@ -404,8 +408,6 @@ class Trainer:
                 break
 
             start_time = time.time()
-            
-            self._validate_sharding_correctness(batch_input, state)
 
             # Eval step
             logits, loss = self.eval_step(state, batch_input)
@@ -540,104 +542,6 @@ class Trainer:
             callbacks.append(self.checkpointer)
 
         return keras.callbacks.CallbackList(callbacks, model=self.model)
-
-    def _validate_sharding_correctness(self, data, state):
-        """This method performs several sharding correctness checks and prints
-        warnings for any sharding issues detected.
-
-        1. Checks if data is properly sharded
-        2. Validates sharding of trainable variables
-        3. Validates sharding of non-trainable variables
-        4. Validates sharding of optimizer variables
-
-        Args:
-            data: Input batch to validate
-            state: Current model state tuple
-
-        """
-        try:
-            if not entire_tree_is_sharded(data):
-                print(
-                    "Warning: data is not sharded",
-                    data["y"].shape,
-                    data["y"].sharding,
-                )
-            for variable, value in zip(self.model.trainable_variables, state[0]):
-                if is_not_sharded_and_is_large(value):
-                    print(
-                        f"Step {self.step_count}: trainable variable is not sharded",
-                        f"{get_size_in_mb(value)}mb",
-                        variable.path,
-                        value.shape,
-                        value.sharding,
-                    )
-            for variable, value in zip(self.model.non_trainable_variables, state[1]):
-                if is_not_sharded_and_is_large(value):
-                    print(
-                        f"Step {self.step_count}: nontrainable variable is not sharded",
-                        f"{get_size_in_mb(value)}mb",
-                        variable.path,
-                        value.shape,
-                        value.sharding,
-                    )
-
-            _ = jax.tree.map(
-                lambda variable, value: print(
-                    f"Step {self.step_count}: optimizer variable is not sharded",
-                    f"{get_size_in_mb(value)}mb",
-                    variable.path,
-                    value.shape,
-                    value.sharding,
-                ) if is_not_sharded_and_is_large(value) else None,
-                self.optimizer.variables,
-                state[2])
-
-        except Exception as e:
-            print(f"Error during sharding correctness validation: {e}")
-
-    def _validate_memory_usage(self):
-        """This method checks the current HBM usage matches the expected HBM
-        usage.
-
-        Current HBM usage is calculated by summing the size of all live arrays,
-        expected HBM usage is calculated by summing the size of all model and
-        optimizer variables.
-        """
-
-        total_size = 0
-        for v in self.model.variables:
-            total_size += get_size_in_mb(v.value)
-
-        total_size += jax.tree.reduce(
-            lambda agg, leaf: jax.numpy.add(agg, get_size_in_mb(leaf.value)), self.optimizer.variables,
-            initializer=0)
-
-        live_arrays = jax.live_arrays()
-        live_arrays_size = 0
-        for v in live_arrays:
-            live_arrays_size += get_size_in_mb(v)
-
-        if not np.isclose(total_size, live_arrays_size, atol=1.0):
-            print(
-                f"WARNING: Potential memory leakage. HBM usage is {live_arrays_size:.3f} MB "
-                f"but model and optimizer are only {total_size:.3f} MB in size."
-            )
-        else:
-            print(
-                f"✅ No memory leakage detected. HBM usage ({live_arrays_size:.3f} MB) "
-                f"matches model and optimizer size ({total_size:.3f} MB)."
-            )
-
-        try:
-            memory_info = jax.local_devices()[0].memory_stats()
-            memory_per_device_mb = memory_info["bytes_limit"] / (1024**2)
-            total_memory = memory_per_device_mb * jax.device_count()
-            print(f"Total memory available is {total_memory:.3f} MB, if you run into "
-                "errors, check if your memory usage is close to the limit, and either "
-                "reduce your per-device batch size or sequence length.")
-        except Exception as e:
-            # memory_info is not available on some TPUs
-            pass
 
     def _validate_setup(self):
         assert (

@@ -1,18 +1,18 @@
 """
- Copyright 2025 Google LLC
+Copyright 2025 Google LLC
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-      https://www.apache.org/licenses/LICENSE-2.0
+     https://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
- """
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
 
 from typing import Optional, Dict, Union, List
 import numpy as np
@@ -113,11 +113,11 @@ class KerasHubModel(Model):
     def _pad_tokens_to_max_length(self, tokens, max_length):
         """
         Pad each sequence in the list of token sequences to max_length.
-        
+
         Args:
             tokens: List of numpy arrays, where each array is a sequence of token IDs
             max_length: The target length to pad sequences to
-            
+
         Returns:
             Dict containing padded token_ids and corresponding padding_mask
         """
@@ -125,22 +125,22 @@ class KerasHubModel(Model):
         batch_size = len(tokens)
         padded_tokens = np.zeros((batch_size, max_length), dtype=np.int64)
         padding_mask = np.zeros((batch_size, max_length), dtype=np.int64)
-        
+
         # Fill the arrays with the tokens and create corresponding masks
         for i, seq in enumerate(tokens):
             seq_len = min(len(seq), max_length)
             padded_tokens[i, :seq_len] = seq[:seq_len]
             padding_mask[i, :seq_len] = 1
-        
+
         return {
             "token_ids": padded_tokens,
             "padding_mask": padding_mask,
         }
-    
+
     def _convert_text_input_to_model_input(
         self,
         prompts: Union[str | List[str]],
-        tokenizer:"AutoTokenizer",
+        tokenizer: "AutoTokenizer",
         max_length: int,
     ):
         assert (
@@ -172,24 +172,24 @@ class KerasHubModel(Model):
         **kwargs,
     ) -> List[List[int]]:
         """Generate tokens using the model. This function falls back to KerasHub model's
-        native generation function: 
+        native generation function:
         https://github.com/keras-team/keras-hub/blob/master/keras_hub/src/models/causal_lm.py
 
         Args:
-            inputs (list[str]|list[np.ndarray]): A list of strings, or a list 
+            inputs (list[str]|list[np.ndarray]): A list of strings, or a list
                 of numpy arrays containing integer token ids.
             max_length (int, optional): Maximum total sequence length
-                (prompt + generated tokens). 
+                (prompt + generated tokens).
             stop_token_ids (List[int], optional): List of token IDs that stop
-                generation. 
+                generation.
             strip_prompt (bool, optional): If True, returns only the generated
                 tokens without the input prompt tokens. If False, returns all
                 tokens, including the prompt tokens. Defaults to False.
-            tokenizer (AutoTokenizer, optional): A HuggingFace AutoTokenizer instance. 
-                This is guaranteed to be provided when inputs are strings. 
+            tokenizer (AutoTokenizer, optional): A HuggingFace AutoTokenizer instance.
+                This is guaranteed to be provided when inputs are strings.
 
         Returns:
-            list[np.ndarray]: Generated token IDs (numpy.ndarray) for each prompt        
+            list[np.ndarray]: Generated token IDs (numpy.ndarray) for each prompt
         """
 
         if isinstance(inputs[0], str):
@@ -207,7 +207,7 @@ class KerasHubModel(Model):
             stop_token_ids=stop_token_ids,
             strip_prompt=strip_prompt,
         )
-                
+
         results = []
         for idx, _ in enumerate(inputs["token_ids"]):
             is_token = tokens["padding_mask"][idx, :] == True
@@ -230,10 +230,10 @@ class KerasHubModel(Model):
 
         Args:
             output_dir (str): Directory path where the model should be saved.
-                Directory could be a local folder (e.g. "foldername/"), 
-                HuggingFaceHub repo (e.g. "hf://your_hf_id/repo_name") or a 
-                Google cloud storage path (e.g. "gs://your_bucket/folder_name), 
-                and will be created if it doesn't exist. 
+                Directory could be a local folder (e.g. "foldername/"),
+                HuggingFaceHub repo (e.g. "hf://your_hf_id/repo_name") or a
+                Google cloud storage path (e.g. "gs://your_bucket/folder_name),
+                and will be created if it doesn't exist.
             dtype (str, optional): Data type for saved weights. Defaults to "auto".
             only_save_adapters (bool): If set to True, only adapter weights will be saved. If
                 set to False, both base model weights and adapter weights will be saved. Default
@@ -254,7 +254,7 @@ class KerasHubModel(Model):
             save_adapters_separately=save_adapters_separately,
             parallel_threads=parallel_threads,
         )
-    
+
     def disable_lora(self):
         target_names = ["query_dense", "value_dense", "query", "value"]
         for layer in self.model.backbone._flatten_layers(include_self=False):
@@ -262,11 +262,9 @@ class KerasHubModel(Model):
                 layer.lora_enabled = False
                 layer.lora_enabled = False
 
-
     def enable_lora(self):
+        print("get_lora_target_names", self.model.backbone.get_lora_target_names())
         target_names = ["query_dense", "value_dense", "query", "value"]
         for layer in self.model.backbone._flatten_layers(include_self=False):
             if layer.name in target_names and hasattr(layer, "enable_lora"):
                 layer.lora_enabled = True
-                layer.lora_enabled = True
-

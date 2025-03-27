@@ -1,9 +1,9 @@
 import jax 
 import jax.numpy as jnp
 
-def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1):
-    jax.debug.print("logits {}", logits.ravel()[:10])
-    jax.debug.print("ref_logits {}", ref_logits.ravel()[:10])
+def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1, label_smoothing=0.0):
+    # jax.debug.print("logits {}", logits.ravel()[:10])
+    # jax.debug.print("ref_logits {}", ref_logits.ravel()[:10])
     
     # Split into chosen and rejected (even/odd indices)
     chosen_logits = logits[::2, :]  # [batch_size/2, seq_len, vocab_size]
@@ -79,10 +79,19 @@ def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1):
     
     # DPO loss calculation
     logits_diff = chosen_avg_imp - rejected_avg_imp
-    jax.debug.print("logits_diff: {}", logits_diff)
+    # jax.debug.print("logits_diff: {}", logits_diff)
     
-    loss = -jax.nn.log_sigmoid(beta * logits_diff)
-    jax.debug.print("loss: {}", loss)
+    # Apply label smoothing to the loss
+    smooth_target = 1.0 - label_smoothing
+    
+    # The standard DPO loss is -log(sigmoid(beta * logits_diff))
+    # With label smoothing, we interpolate between that and -log(sigmoid(-beta * logits_diff))
+    positive_loss = -jax.nn.log_sigmoid(beta * logits_diff)
+    negative_loss = -jax.nn.log_sigmoid(-beta * logits_diff)
+    
+    loss = smooth_target * positive_loss + label_smoothing * negative_loss
+    
+    # jax.debug.print("loss: {}", loss)
     
     # Calculate rewards (r_θ in the paper)
     chosen_rewards = beta * chosen_avg_imp
@@ -104,4 +113,4 @@ def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1):
     }
     
     # Return both the loss and the metrics dictionary
-    return jnp.mean(loss), 1
+    return jnp.mean(loss), metrics
