@@ -17,7 +17,7 @@ limitations under the License.
 import transformers
 from keras_hub.src.utils.preset_utils import load_json
 from kithara.model import supported_models
-
+from kithara.model.hf_compatibility.qwen_model_configs import *
 
 gemma2_2b_config = transformers.Gemma2Config(
     num_hidden_layers=26,
