@@ -204,7 +204,23 @@ def get_model_name_from_preset_handle(preset_handle):
             return supported_models.LLAMA32_1B
         elif n_layers == 28:
             return supported_models.LLAMA32_3B
-    print(f"model type {model_type} is currently unsupported.")
+    elif model_type == "qwen2":
+        n_layers, hidden_size = config["num_hidden_layers"], config["hidden_size"]
+        if n_layers == 24:
+            return supported_models.QWEN25_D5B
+        elif n_layers == 28 and hidden_size == 1536:
+            return supported_models.QWEN25_1D5B
+        elif n_layers == 36:
+            return supported_models.QWEN25_3B
+        elif n_layers == 28 and hidden_size == 3584:
+            return supported_models.QWEN25_7B
+        elif n_layers == 48:
+            return supported_models.QWEN25_14B
+        elif n_layers == 64:
+            return supported_models.QWEN25_32B
+        elif n_layers == 80:
+            return supported_models.QWEN25_72B
+    print(f"model type {model_type} from '{preset_handle}' is currently unsupported.")
     return None
 
 
