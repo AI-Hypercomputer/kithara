@@ -131,11 +131,12 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         
         # Tokenize the prompt with a length limit
         prompt_seq = HFtokenize(
-            f"<bos>{prompt}", self.tokenizer, seq_len=self.max_prompt_length
+            f"<bos>{prompt}", self.tokenizer, seq_len=self.max_prompt_length, padding="do_not_pad"
         )
         num_prompt_tokens = len(prompt_seq["input_ids"][0])
 
         # Tokenize chosen and rejected responses, leaving room for prompt tokens
+
         chosen_seq = HFtokenize(
             f"{chosen}<eos>",
             self.tokenizer,
@@ -151,6 +152,7 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         full_chosen_seq_input_ids = np.concatenate(
             [prompt_seq["input_ids"], chosen_seq["input_ids"]], axis=1
         )
+
         full_rejected_seq_input_ids = np.concatenate(
             [prompt_seq["input_ids"], rejected_seq["input_ids"]], axis=1
         )
