@@ -1,11 +1,13 @@
 from datasets import load_dataset
- 
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import LoraConfig
+from transformers import TrainingArguments
+from trl import DPOConfig
+
 # Load jsonl data from disk
 train_dataset = load_dataset("json", data_files="kithara_trl_comparison/train_dataset.json", split="train")
 eval_dataset = load_dataset("json", data_files="kithara_trl_comparison/test_dataset.json", split="train")
-
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
  
 # Hugging Face model id
 model_id = "google/gemma-2-2b" # replace with your model id
@@ -20,7 +22,6 @@ model = AutoModelForCausalLM.from_pretrained(
     model_id,
     device_map="auto",
     use_cache=False,
-    # attn_implementation="flash_attention_2",
     torch_dtype=torch.bfloat16,
     quantization_config=bnb_config
 )
@@ -31,8 +32,6 @@ tokenizer.truncation_side = 'left' # to prevent cutting off last generation
 
 prompt_length = 1024
 max_seq_length = 1512
-
-from peft import LoraConfig
  
 # LoRA config based on QLoRA paper & Sebastian Raschka experiment
 peft_config = LoraConfig(
@@ -44,35 +43,26 @@ peft_config = LoraConfig(
         task_type="CAUSAL_LM",
 )
 
-from transformers import TrainingArguments
-from trl import DPOConfig
  
 args = DPOConfig(
-    output_dir="doplhin-dpo",               # directory to save and repository id
     num_train_epochs=1,                     # number of training epochs
     per_device_train_batch_size=1,         # batch size per device during training
     per_device_eval_batch_size=1,           # batch size for evaluation
-    gradient_accumulation_steps=1,          # number of steps before performing a backward/update pass
     gradient_checkpointing=True,            # use gradient checkpointing to save memory
     optim="adamw_torch",              # use fused adamw optimizer
     learning_rate=5e-5,                     # 10x higher LR than QLoRA paper
-    logging_steps=2,                       # log every 25 steps
+    logging_steps=1,                       # log every 25 steps
     evaluation_strategy="steps",            # evaluate every 1000 steps
-    eval_steps=700,                         # when to evaluate
+    eval_steps=70000,                         # when to evaluate
     bf16=True,                              # use bfloat16 precision
     tf32=True,                              # use tf32 precision
-    push_to_hub=False,                      # push model to hub
     max_length = max_seq_length,
     max_prompt_length = prompt_length,
     beta= 0.1,
     loss_type="sigmoid"
 )
  
-# dpo_args = {
-#     "beta": 0.1,                            # The beta factor in DPO loss. Higher beta means less divergence
-#     "loss_type": "sigmoid" ,                 # The loss type for DPO.
-# }
-# 
+
 from trl import DPOTrainer
  
 trainer = DPOTrainer(
@@ -88,34 +78,6 @@ trainer = DPOTrainer(
 # start training, the model will be automatically saved to the hub and the output directory
 trainer.train()
  
-# save model at the end of training
-trainer.save_model()
-
-
-#The training with Flash Attention for 1 epochs with a dataset of ~10k samples took ~01:30:00 on 1x H100 GPU. You should be able to run the training on a g5.2xlarge instance by reducing the batch_size (est. to 1) and maybe the max_seq_length (est. to 1512).
-
-
-del model
-del trainer
-torch.cuda.empty_cache()
-
-
-import torch
-from peft import AutoPeftModelForCausalLM
-from transformers import AutoTokenizer, pipeline
- 
-# Path to saved peft adapter model
-# peft_model_id = args.output_dir # or
-peft_model_id = "./doplhin-dpo"
- 
-# Load Model with PEFT adapter
-model = AutoPeftModelForCausalLM.from_pretrained(
-  peft_model_id,
-  device_map="auto",
-  torch_dtype=torch.float16
-)
-tokenizer = AutoTokenizer.from_pretrained(peft_model_id)
-# load into pipeline
 pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
 
 prompts = [
