@@ -18,7 +18,7 @@ from kithara.model.mpmd import RayModel
 from kithara.trainer.validation_mixin import ValidationMixin
 from kithara.trainer.dpo.dpo_loss import dpo_loss_fn
 
-class DPOPolicyModel(RayModel, ValidationMixin):
+class DPOPolicyModel():
     """Policy model for DPO training that can be run locally or distributed with Ray."""
 
     def __init__(self, dpo_config: "DPOConfig"):
@@ -36,7 +36,7 @@ class DPOPolicyModel(RayModel, ValidationMixin):
         self.model.optimizer = self.optimizer
 
         if dpo_config.run_mpmd:
-            self._validate_memory_usage(
+            ValidationMixin.validate_memory_usage(
                 models=[self.model], optimizers=[self.optimizer]
             )
 
@@ -58,7 +58,7 @@ class DPOPolicyModel(RayModel, ValidationMixin):
     def create_optimizer(self):
         """Create optimizer from config or use existing one."""
         if isinstance(self.dpo_config.policy_model.optimizer, OptimizerConfig):
-            optimizer = create_optimizer_from_config(self.dpo_config.optimizer)
+            optimizer = create_optimizer_from_config(self.dpo_config.policy_model.optimizer)
         else:
             optimizer = self.dpo_config.policy_model.optimizer
 
@@ -81,7 +81,7 @@ class DPOPolicyModel(RayModel, ValidationMixin):
         self.model.enable_lora()
         return logits
 
-    def loss_fn(self, trainable_variables, non_trainable_variables, ref_logits, batch):
+    def _loss_fn(self, trainable_variables, non_trainable_variables, ref_logits, batch):
         logits, non_trainable_variables = self.model.stateless_call(
             trainable_variables,
             non_trainable_variables,
@@ -104,7 +104,7 @@ class DPOPolicyModel(RayModel, ValidationMixin):
             self.model.non_trainable_variables,
             self.optimizer.variables,
         )
-        self._validate_sharding_correctness(
+        ValidationMixin.validate_sharding_correctness(
             data=batch,
             model=self.model,
             optimizer=self.optimizer,
@@ -128,7 +128,7 @@ class DPOPolicyModel(RayModel, ValidationMixin):
         trainable_variables, non_trainable_variables, optimizer_variables = state
 
         (loss, (metrics, non_trainable_variables)), grads = jax.value_and_grad(
-            self.loss_fn, has_aux=True
+            self._loss_fn, has_aux=True
         )(trainable_variables, non_trainable_variables, ref_logits, batch)
 
         trainable_variables, optimizer_variables = self.optimizer.stateless_apply(
@@ -166,7 +166,7 @@ class DPOPolicyModel(RayModel, ValidationMixin):
         """
         trainable_variables, non_trainable_variables = state
 
-        loss, (metrics, _) = self.loss_fn(
+        loss, (metrics, _) = self._loss_fn(
             trainable_variables, non_trainable_variables, ref_logits, batch
         )
 

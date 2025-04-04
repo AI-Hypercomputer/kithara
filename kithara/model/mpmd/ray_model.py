@@ -1,6 +1,8 @@
 from typing import Protocol, Any
 from kithara.callbacks import Checkpointer 
 from abc import ABC, abstractmethod
+
+
 class RayModel(ABC):
     """Protocol defining the interface for ray-based models."""
     @property

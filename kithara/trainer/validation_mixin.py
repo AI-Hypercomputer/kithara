@@ -3,6 +3,8 @@ os.environ["KERAS_BACKEND"] = "jax"
 
 import keras
 import jax
+import numpy as np 
+
 from kithara.distributed.sharding.utils import (
     entire_tree_is_sharded,
     is_not_sharded_and_is_large,
@@ -11,7 +13,7 @@ from kithara.distributed.sharding.utils import (
 
 class ValidationMixin:
     @staticmethod
-    def _validate_sharding_correctness(
+    def validate_sharding_correctness(
         data=None,
         model=None,
         optimizer=None,
@@ -97,7 +99,7 @@ class ValidationMixin:
             print(f"Error during model variable sharding correctness validation: {e}")
     
     @staticmethod
-    def _validate_memory_usage(models, optimizers):
+    def validate_memory_usage(models, optimizers):
         """This method checks the current HBM usage matches the expected HBM
         usage.
 

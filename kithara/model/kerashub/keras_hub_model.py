@@ -256,15 +256,14 @@ class KerasHubModel(Model):
         )
 
     def disable_lora(self):
-        target_names = ["query_dense", "value_dense", "query", "value"]
+        target_names = self.model.backbone.get_lora_target_names()
         for layer in self.model.backbone._flatten_layers(include_self=False):
             if layer.name in target_names and hasattr(layer, "enable_lora"):
                 layer.lora_enabled = False
                 layer.lora_enabled = False
 
     def enable_lora(self):
-        print("get_lora_target_names", self.model.backbone.get_lora_target_names())
-        target_names = ["query_dense", "value_dense", "query", "value"]
+        target_names = self.model.backbone.get_lora_target_names()
         for layer in self.model.backbone._flatten_layers(include_self=False):
             if layer.name in target_names and hasattr(layer, "enable_lora"):
                 layer.lora_enabled = True

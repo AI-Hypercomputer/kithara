@@ -31,7 +31,7 @@ class DPOConfig:
     run_mpmd: bool = False
 
 
-class DPOTrainer(ValidationMixin):
+class DPOTrainer():
     """Direct Preference Optimization (DPO) Trainer.
 
     Can run in either MPMD (multiple program, multiple data) mode on CPU with tasks dispatched to TPUs,
@@ -435,8 +435,8 @@ class DPOTrainer(ValidationMixin):
         #     )
         # if self.profiler:
         #     callbacks.append(self.profiler)
-        if self.checkpointer and not self.dpo_config.run_mpmd:
-            callbacks.append(self.checkpointer)
+        # if self.checkpointer and not self.dpo_config.run_mpmd:
+        #     callbacks.append(self.checkpointer)
         return keras.callbacks.CallbackList(callbacks, model=self.policy_model)
 
     def _validate_setup(self):

@@ -8,9 +8,10 @@ from kithara.model.model import (
     ModelConfig,
 )
 from kithara.model.mpmd import RayModel
+from kithara.trainer.validation_mixin import ValidationMixin
 
 
-class DPOReferenceModel(RayModel):
+class DPOReferenceModel():
     """Reference model for DPO training."""
 
     def __init__(self, dpo_config: "DPOConfig"):

@@ -103,7 +103,7 @@ def run_workload():
         lora_rank=16,
         per_device_batch_size=1,
         seq_len=1024,
-        optimizer=OptimizerConfig("adamw", learning_rate=2e-4),
+        optimizer=OptimizerConfig("adamw", learning_rate=1e-3),
     )
 
     dpo_config = DPOConfig(beta=0.1, policy_model=policy_model_config, run_mpmd=False)
