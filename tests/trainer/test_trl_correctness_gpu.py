@@ -36,47 +36,43 @@ from peft import LoraConfig
  
 # LoRA config based on QLoRA paper & Sebastian Raschka experiment
 peft_config = LoraConfig(
-        lora_alpha=128,
-        lora_dropout=0.05,
+        lora_alpha=256,
+        lora_dropout=0.0,
         r=256,
         bias="none",
-        target_modules="all-linear",
+        target_modules=["v_proj", "q_proj"],
         task_type="CAUSAL_LM",
 )
 
 from transformers import TrainingArguments
+from trl import DPOConfig
  
-args = TrainingArguments(
+args = DPOConfig(
     output_dir="doplhin-dpo",               # directory to save and repository id
     num_train_epochs=1,                     # number of training epochs
-    per_device_train_batch_size=12,         # batch size per device during training
-    per_device_eval_batch_size=4,           # batch size for evaluation
+    per_device_train_batch_size=1,         # batch size per device during training
+    per_device_eval_batch_size=1,           # batch size for evaluation
     gradient_accumulation_steps=1,          # number of steps before performing a backward/update pass
     gradient_checkpointing=True,            # use gradient checkpointing to save memory
-    optim="adamw_torch_fused",              # use fused adamw optimizer
+    optim="adamw_torch",              # use fused adamw optimizer
     learning_rate=5e-5,                     # 10x higher LR than QLoRA paper
-    max_grad_norm=0.3,                      # max gradient norm based on QLoRA paper
-    warmup_ratio=0.1,                       # warmup ratio based on QLoRA paper
-    lr_scheduler_type="cosine",             # use cosine learning rate scheduler
-    logging_steps=25,                       # log every 25 steps
-    save_steps=500,                         # when to save checkpoint
-    save_total_limit=2,                     # limit the total amount of checkpoints
+    logging_steps=2,                       # log every 25 steps
     evaluation_strategy="steps",            # evaluate every 1000 steps
     eval_steps=700,                         # when to evaluate
     bf16=True,                              # use bfloat16 precision
     tf32=True,                              # use tf32 precision
     push_to_hub=False,                      # push model to hub
-    report_to="tensorboard",                # report metrics to tensorboard
+    max_length = max_seq_length,
+    max_prompt_length = prompt_length,
+    beta= 0.1,
+    loss_type="sigmoid"
 )
  
-dpo_args = {
-    "beta": 0.1,                            # The beta factor in DPO loss. Higher beta means less divergence
-    "loss_type": "sigmoid" ,                 # The loss type for DPO.
-    "max_length":max_seq_length,
-    "max_prompt_length": prompt_length,
-    
-}
-
+# dpo_args = {
+#     "beta": 0.1,                            # The beta factor in DPO loss. Higher beta means less divergence
+#     "loss_type": "sigmoid" ,                 # The loss type for DPO.
+# }
+# 
 from trl import DPOTrainer
  
 trainer = DPOTrainer(
@@ -87,10 +83,6 @@ trainer = DPOTrainer(
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
     tokenizer=tokenizer,
-    # max_length=max_seq_length,
-    # max_prompt_length=prompt_length,
-    # beta=dpo_args["beta"],
-    # loss_type=dpo_args["loss_type"],
 )
 
 # start training, the model will be automatically saved to the hub and the output directory
