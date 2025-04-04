@@ -10,8 +10,8 @@ from kithara.model.model import ModelConfig, OptimizerConfig
 from kithara.trainer.dpo import DPOConfig, DPOTrainer
 
 # Load jsonl data from disk
-train_dataset = load_dataset("json", data_files="train_dataset.json", split="train")
-eval_dataset = load_dataset("json", data_files="test_dataset.json", split="train")
+train_dataset = load_dataset("json", data_files="train_dataset_toy.json", split="train")
+eval_dataset = load_dataset("json", data_files="test_dataset_toy.json", split="train")
 
 
 model_id = "google/gemma-2-2b"
@@ -24,6 +24,7 @@ policy_model_config = ModelConfig(
     seq_len=1024,
     optimizer=OptimizerConfig("adamw", learning_rate=5e-5),
 )
+
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 tokenizer.pad_token = tokenizer.eos_token
