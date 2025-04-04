@@ -10,7 +10,7 @@ Trainer
    :param model: The model to be trained or evaluated
    :type model: kithara.Model
    :param optimizer: The optimizer used for training
-   :type optimizer: keras.Optimizer
+   :type optimizer: keras.Optimizer | optax.GradientTransformation | optax.GradientTransformationExtraArgs
    :param train_dataloader: A dataloader that provides training batches
    :type train_dataloader: kithara.Dataloader
    :param eval_dataloader: A dataloader that provides evaluation batches
@@ -57,7 +57,7 @@ Example usage:
            save_interval=100,
        ),
    )
-   
+
    trainer.train()
 
 Note

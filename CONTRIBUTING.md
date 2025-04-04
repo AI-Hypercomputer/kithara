@@ -43,7 +43,7 @@ information on using pull requests.
 git clone --recursive https://github.com/AI-Hypercomputer/kithara.git
 ```
 
-Make sure that you have cloned Kithara with the MaxText submodule. If already cloned, add the submodule using the following command.
+Make sure that you have cloned Kithara with the MaxText and JetStream submodule. If already cloned, add the submodule using the following command.
 
 ```
 git submodule update --init --recursive
@@ -51,10 +51,11 @@ git submodule update --init --recursive
 
 **Troubleshooting**:
 
-If you don't see the MaxText submodule after cloning or updating, try
+If you don't see the MaxText or Jetstream submodule after cloning or updating, try
 
 ```
 git submodule add --force https://github.com/google/maxtext kithara/model/maxtext/maxtext
+git submodule add --force https://github.com/AI-Hypercomputer/JetStream kithara/model/maxtext/JetStream
 ```
 
 ### 2. Install dependencies
@@ -82,6 +83,9 @@ pip install -e .[tpu,dev] -f https://storage.googleapis.com/jax-releases/libtpu_
 
 # On GPU
 pip install -e .[gpu,dev]
+
+# On CPU
+pip install -e .[cpu]
 ```
 
 Now you should be ready to develop on single host! Test your set up by running a script in the `examples/singlehost` folder.

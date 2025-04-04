@@ -8,14 +8,14 @@ Ray is a great tool for running distributed TPU and GPU workloads. It offers a d
 
 ### Instructions for setting up Ray Cluster with GCE resources
 
-1. Assume you have resource capacity and quota in your GCP project and region/zone. Modify `ray/TPU/cluster.yaml` or `ray/GPU/cluster.yaml`template with your configurations. Please take a look at the YAML file and ctrl+F for MODIFY.
+1. Assume you have resource capacity and quota in your GCP project and region/zone. Modify `ray/TPU/GCE/cluster.yaml` or `ray/GPU/cluster.yaml`template with your configurations. Please take a look at the YAML file and ctrl+F for MODIFY.
 
 2. Run the following commands to bring up your ray cluster.
 
    For TPU,
 
    ```
-   cd ray/TPU
+   cd ray/TPU/GCE
    ```
 
    For GPU:

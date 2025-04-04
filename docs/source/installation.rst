@@ -56,3 +56,10 @@ Installation on GPU
 .. code-block:: bash
 
     pip install kithara[gpu]
+
+
+Clone the repo
+~~~~~~~~~~~~~~
+
+.. code-block:: bash 
+    git clone --recursive https://github.com/AI-Hypercomputer/kithara.git
