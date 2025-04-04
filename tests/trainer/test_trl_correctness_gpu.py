@@ -45,6 +45,7 @@ peft_config = LoraConfig(
 
  
 args = DPOConfig(
+    output_dir = "temp/",
     num_train_epochs=1,                     # number of training epochs
     per_device_train_batch_size=1,         # batch size per device during training
     per_device_eval_batch_size=1,           # batch size for evaluation
