@@ -99,6 +99,8 @@ class Checkpointer(Callback):
         assert self._model is not None, "Please provide the model instance when creating the Checkpointer."
         if optimizer:
             self._optimizer = optimizer
+        else:
+            self._optimizer = None
 
     def on_train_batch_end(self, batch, logs=None):
         """Called at the end of every training batch."""
