@@ -371,6 +371,11 @@ class MaxTextModel(Model, MaxTextConversionMixin):
             self.maxengine.load_existing_params(params)
             self.decode_state = self.maxengine.init_decode_state()
 
+    def disable_lora(self):
+        return
+    
+    def enable_lora(self):
+        return
 
 def does_model_support_scanning(model_name):
     return model_name in [

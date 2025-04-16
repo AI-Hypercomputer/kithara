@@ -2,8 +2,8 @@ import jax
 import jax.numpy as jnp
 
 def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1, label_smoothing=0.0):
-    # jax.debug.print("logits {}", logits.ravel()[:10])
-    # jax.debug.print("ref_logits {}", ref_logits.ravel()[:10])
+    jax.debug.print("logits {}", logits[0, 0, :10])
+    jax.debug.print("ref_logits {}", ref_logits[0, 0, :10])
     
     # Split into chosen and rejected (even/odd indices)
     chosen_logits = logits[::2]  # [batch_size/2, seq_len, vocab_size]
@@ -43,17 +43,27 @@ def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1, label_smoothing=0.0)
         batch_indices, seq_indices, rejected_tokens
     ]
 
+    jax.debug.print("chosen_token_logits {}", chosen_token_logits[0, :10])
+    jax.debug.print("rejected_token_logits {}", rejected_token_logits[0, :10])
+    
     
     # Gather relevant token log probs
     chosen_token_log_probs = chosen_log_probs[
         batch_indices, seq_indices, chosen_tokens
     ]
-    
-    jax.debug.print("chosen_token_log_probs shape {}", chosen_token_log_probs.shape)
-
     rejected_token_log_probs = rejected_log_probs[
         batch_indices, seq_indices, rejected_tokens
     ]
+    jax.debug.print("chosen_token_log_probs {}", chosen_token_logits[0, :10])
+    jax.debug.print("rejected_token_log_probs {}", rejected_token_log_probs[0, :10])
+
+    all_chosen_log_probs = jnp.sum(chosen_token_log_probs * chosen_mask, axis=-1)
+    all_rejected_log_probs = jnp.sum(rejected_token_log_probs * rejected_mask, axis=-1)
+
+    jax.debug.print("all_chosen_log_probs {}", all_chosen_log_probs)
+    jax.debug.print("all_rejected_log_probs {}", all_rejected_log_probs)
+    
+    
     ref_chosen_token_log_probs = ref_chosen_log_probs[
         batch_indices, seq_indices, chosen_tokens
     ]
@@ -75,7 +85,7 @@ def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1, label_smoothing=0.0)
         rejected_imp_weights * rejected_mask, axis=1
     ) / jnp.maximum(jnp.sum(rejected_mask, axis=1), 1.0)
     
-    # # Calculate average log probabilities for metrics
+    # Calculate average log probabilities for metrics
     # chosen_logps = jnp.sum(
     #     chosen_token_log_probs * chosen_mask, axis=1
     # ) / jnp.maximum(jnp.sum(chosen_mask, axis=1), 1.0)
@@ -100,30 +110,27 @@ def dpo_loss_fn(logits, ref_logits, mask, tokens, beta=0.1, label_smoothing=0.0)
     # jax.debug.print("loss: {}", loss)
     
     # Calculate rewards (r_θ in the paper)
-    chosen_rewards = beta * chosen_avg_imp
-    rejected_rewards = beta * rejected_avg_imp
+    # chosen_rewards = beta * chosen_avg_imp
+    # rejected_rewards = beta * rejected_avg_imp
     
     # Calculate reward accuracies (how often chosen > rejected)
-    reward_accuracies = (chosen_rewards > rejected_rewards).astype(jnp.float32)
+    # reward_accuracies = (chosen_rewards > rejected_rewards).astype(jnp.float32)
 
 
-    mean_chosen_logits = jnp.sum(chosen_token_logits * chosen_mask[:, :] ) / jnp.maximum(jnp.sum(chosen_mask), 1.0)
-    mean_rejected_logits = jnp.sum(rejected_token_logits * rejected_mask[:, :] ) / jnp.maximum(jnp.sum(rejected_mask), 1.0)
-
-    mean_chosen_log_probs = jnp.sum(chosen_token_log_probs * chosen_mask[:, :] ) / jnp.maximum(jnp.sum(chosen_mask), 1.0)
-    mean_rejected_log_probs = jnp.sum(rejected_token_log_probs * rejected_mask[:, :] ) / jnp.maximum(jnp.sum(rejected_mask), 1.0)
+    mean_chosen_logits = jnp.sum(chosen_logits * chosen_mask ) / jnp.maximum(jnp.sum(chosen_mask), 1.0)
+    mean_rejected_logits = jnp.sum(rejected_logits * rejected_mask ) / jnp.maximum(jnp.sum(rejected_mask), 1.0)
 
 
     # Return metrics dictionary along with the loss
     metrics = {
-        "rewards/chosen": jnp.mean(chosen_rewards),
-        "rewards/rejected": jnp.mean(rejected_rewards),
-        "rewards/accuracies": jnp.mean(reward_accuracies),
-        "rewards/margins": jnp.mean(chosen_rewards - rejected_rewards),
-        "logps/chosen": mean_chosen_log_probs,
-        "logps/rejected": mean_rejected_log_probs,
-        "logits/chosen": mean_chosen_logits,
-        "logits/rejected": mean_rejected_logits,
+        # "rewards/chosen": jnp.mean(chosen_rewards),
+        # "rewards/rejected": jnp.mean(rejected_rewards),
+        # "rewards/accuracies": jnp.mean(reward_accuracies),
+        # "rewards/margins": jnp.mean(chosen_rewards - rejected_rewards),
+        "logps/chosen": jnp.mean(all_chosen_log_probs), #
+        "logps/rejected": jnp.mean(all_rejected_log_probs),#
+        "logits/chosen": mean_chosen_logits,#
+        "logits/rejected": mean_rejected_logits,#
     }
     
     # Return both the loss and the metrics dictionary

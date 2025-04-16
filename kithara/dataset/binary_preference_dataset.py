@@ -131,8 +131,8 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         
         # Tokenize the prompt with a length limit
         prompt_seq = HFtokenize(
-            f"<bos>{prompt}", self.tokenizer, seq_len=self.max_prompt_length, padding="do_not_pad"
-        )
+            f"{prompt}", self.tokenizer, seq_len=self.max_prompt_length, padding="do_not_pad"
+        )#<bos> DO_NOT_SUBMIT
         num_prompt_tokens = len(prompt_seq["input_ids"][0])
 
         # Tokenize chosen and rejected responses, leaving room for prompt tokens
@@ -174,5 +174,4 @@ class BinaryPreferenceDataset(TextCompletionDataset):
         label_ids = np.roll(input_ids, -1)
         label_ids[:, -1] = self.tokenizer.pad_token_id
         label_ids[:, : num_prompt_tokens - 1] = self.tokenizer.pad_token_id
-        
         return input_ids, attention_mask, label_ids

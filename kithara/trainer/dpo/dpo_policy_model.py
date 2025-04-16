@@ -17,6 +17,7 @@ from kithara.optimizers import convert_to_kithara_optimizer
 from kithara.model.mpmd import RayModel
 from kithara.trainer.validation_mixin import ValidationMixin
 from kithara.trainer.dpo.dpo_loss import dpo_loss_fn
+import time
 
 class DPOPolicyModel():
     """Policy model for DPO training that can be run locally or distributed with Ray."""
@@ -70,32 +71,30 @@ class DPOPolicyModel():
             )
         return optimizer
 
-    def get_logits(self, batch):
-        """Get logits from the model for the given batch."""
-        return self.model.forward(batch["x"])
+    @partial(jax.jit, static_argnums=(0,), donate_argnums=(2,))
+    def stateless_forward(self, trainable_vars, non_trainable_vars, inputs):
+        logits, non_trainable_variables = self.model.stateless_call(
+            trainable_vars,
+            non_trainable_vars,
+            inputs,
+        )
+        return logits, non_trainable_variables
+
+    def get_logits(self, inputs):
+        logits, non_trainable_variables = self.model.stateless_call(
+            [var.value for var in self.model.trainable_variables],
+            [var.value for var in self.model.non_trainable_variables],
+            inputs,
+        )
+        self.model.update_model_state(non_trainable_variables=non_trainable_variables)
+        return logits
 
     def get_ref_logits(self, batch):
         """Get reference logits with LoRA disabled."""
         self.model.disable_lora()
-        logits = self.model.forward(batch["x"])
+        logits = self.get_logits(batch["x"])
         self.model.enable_lora()
         return logits
-
-    def _loss_fn(self, trainable_variables, non_trainable_variables, ref_logits, batch):
-        logits, non_trainable_variables = self.model.stateless_call(
-            trainable_variables,
-            non_trainable_variables,
-            batch["x"],
-        )
-        loss, metrics = dpo_loss_fn(
-            logits,
-            ref_logits,
-            batch["x"][self.mask_key],
-            batch["x"][self.token_key],
-            beta=self.dpo_config.beta,
-            label_smoothing=self.dpo_config.label_smoothing,
-        )
-        return loss, (metrics, non_trainable_variables)
 
     def compute_loss_and_update(self, batch, ref_logits):
         """Compute loss and update model weights (stateful wrapper)."""
@@ -104,13 +103,15 @@ class DPOPolicyModel():
             self.model.non_trainable_variables,
             self.optimizer.variables,
         )
-        ValidationMixin.validate_sharding_correctness(
-            data=batch,
-            model=self.model,
-            optimizer=self.optimizer,
-        )
+        # ValidationMixin.validate_sharding_correctness(
+        #     data=batch,
+        #     model=self.model,
+        #     optimizer=self.optimizer,
+        # )
         loss, metrics, state = self._compute_loss_and_update(state, ref_logits, batch)
+        start_time = time.time()
         self.model.update_model_state(*state)
+        print(f"updated model state in {time.time()-start_time}")
         return loss, metrics
 
     @partial(jax.jit, static_argnums=(0,), donate_argnums=(1,))
@@ -143,6 +144,23 @@ class DPOPolicyModel():
             (trainable_variables, non_trainable_variables, optimizer_variables),
         )
     
+    def _loss_fn(self, trainable_variables, non_trainable_variables, ref_logits, batch):
+        logits, non_trainable_variables = self.stateless_forward(
+            trainable_variables,
+            non_trainable_variables,
+            batch["x"],
+        )
+        mask = (batch["y"] != 0 ) * 1.0
+        loss, metrics = dpo_loss_fn(
+            logits,
+            ref_logits,
+            mask,
+            batch["x"][self.token_key],
+            beta=self.dpo_config.beta,
+            label_smoothing=self.dpo_config.label_smoothing,
+        )
+        return loss, (metrics, non_trainable_variables)
+
     def compute_loss(self, batch, ref_logits):
         """Compute loss without updating weights (stateful wrapper)."""
         state = (

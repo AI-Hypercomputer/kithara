@@ -172,23 +172,6 @@ class Model(ABC, ModelValidationMixin):
             parallel_threads (int, optional): Number of parallel threads to use for saving.
         """
 
-    @partial(jax.jit, static_argnums=(0,))
-    def stateless_forward(self, trainable_vars, non_trainable_vars, inputs):
-        logits, _ = self.model.stateless_call(
-            trainable_vars,
-            non_trainable_vars,
-            inputs,
-        )
-        return logits
-
-    def forward(self, inputs):
-        logits = self.stateless_forward(
-            [var.value for var in self.model.trainable_variables],
-            [var.value for var in self.model.non_trainable_variables],
-            inputs,
-        )
-        return logits
-
     def update_model_state(
         self,
         trainable_variables=None,

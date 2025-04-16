@@ -43,7 +43,7 @@ class DPOTrainer():
         dpo_config: DPOConfig,
         train_dataloader: kithara.Dataloader,
         eval_dataloader: Optional[kithara.Dataloader] = None,
-        steps: Optional[int] = 100,
+        steps: Optional[int] = None,
         epochs: Optional[int] = None,
         log_steps_interval: int = 1,
         eval_steps_interval: Optional[int] = None,
@@ -100,7 +100,7 @@ class DPOTrainer():
         self.device_count = jax.device_count()
 
         # Validate configuration
-        self._validate_setup()
+        # self._validate_setup()
 
         # Callbacks and logging
         self.profiler = profiler
@@ -149,7 +149,6 @@ class DPOTrainer():
 
             epoch_loss = 0
             batches_seen_in_epoch = 0
-
             # Process each batch in the epoch
             for batch_input in self.train_dataloader:
                 if self.steps and self.step_count >= self.steps:
@@ -266,8 +265,15 @@ class DPOTrainer():
         if self.ref_model:
             ref_logits = self.ref_model.get_logits(batch)
         else:
+            print("getting ref logits")
+            start_time = time.time()
             ref_logits = self.policy_model.get_ref_logits(batch)
+            print("got ref logits in ", time.time() - start_time)
+
+        print("computing loss")
+        start_time = time.time()
         loss, metrics = self.policy_model.compute_loss_and_update(batch, ref_logits)
+        print("got loss in ", time.time() - start_time)
         return loss, metrics
 
     def _mpmd_train_step(self, batch):

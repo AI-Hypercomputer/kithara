@@ -260,7 +260,6 @@ class KerasHubModel(Model):
         for layer in self.model.backbone._flatten_layers(include_self=False):
             if layer.name in target_names and hasattr(layer, "enable_lora"):
                 layer.lora_enabled = False
-                layer.lora_enabled = False
 
     def enable_lora(self):
         target_names = self.model.backbone.get_lora_target_names()
