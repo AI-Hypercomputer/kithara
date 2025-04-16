@@ -6,8 +6,8 @@ from transformers import TrainingArguments
 from trl import DPOConfig
 
 # Load jsonl data from disk
-train_dataset = load_dataset("json", data_files="kithara_trl_comparison/train_dataset.json", split="train")
-eval_dataset = load_dataset("json", data_files="kithara_trl_comparison/test_dataset.json", split="train")
+train_dataset = load_dataset("json", data_files="kithara_trl_comparison/train_dataset_toy.json", split="train")
+eval_dataset = load_dataset("json", data_files="kithara_trl_comparison/test_dataset_toy.json", split="train")
  
 # Hugging Face model id
 model_id = "google/gemma-2-2b" # replace with your model id
@@ -23,7 +23,7 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto",
     use_cache=False,
     torch_dtype=torch.bfloat16,
-    quantization_config=bnb_config
+    # quantization_config=bnb_config
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 tokenizer.pad_token = tokenizer.eos_token
@@ -35,18 +35,19 @@ max_seq_length = 1512
  
 # LoRA config based on QLoRA paper & Sebastian Raschka experiment
 peft_config = LoraConfig(
-        lora_alpha=256,
+        lora_alpha=16,
         lora_dropout=0.0,
-        r=256,
+        r=16,
         bias="none",
         target_modules=["v_proj", "q_proj"],
         task_type="CAUSAL_LM",
 )
+
  
 args = DPOConfig(
     output_dir = "temp/",
     num_train_epochs=1,
-    max_steps=10, 
+    max_steps=1, 
     per_device_train_batch_size=1,         # batch size per device during training
     per_device_eval_batch_size=1,           # batch size for evaluation
     gradient_checkpointing=True,            # use gradient checkpointing to save memory
@@ -60,9 +61,10 @@ args = DPOConfig(
     max_length = max_seq_length,
     max_prompt_length = prompt_length,
     beta= 0.1,
-    loss_type="sigmoid"
+    loss_type="sigmoid",
+    lr_scheduler_type="constant"
 )
- 
+
 
 from trl import DPOTrainer
  
@@ -78,21 +80,8 @@ trainer = DPOTrainer(
 
 # start training, the model will be automatically saved to the hub and the output directory
 trainer.train()
- 
-pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
 
-prompts = [
-  "A rectangular garden has a length of 25 feet and a width of 15 feet. If you want to build a fence around the entire garden, how many feet of fencing will you need?",
-  "It's Bengay for muscle relief, a combination of methyl salicylate, menthol, and what other active ingredient commonly found in aspirin?",
-  "How can i get rid of llamas in my backyard?"
-]
 
-for prompt in prompts:
-  messages = pipe.tokenizer.apply_chat_template([{"role":"user", "content": prompt}], tokenize=False)
-  outputs = pipe(prompt, max_new_tokens=2048, do_sample=True, temperature=1.0, top_k=50, top_p=0.9, eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.pad_token_id)
-  print(f"**Prompt**:\n{prompt}\n")
-  print(f"**Generated Answer**:\n{outputs[0]['generated_text'][len(prompt):].strip()}")
-  print("===" * 10)
 
 # On GPU
 # {'loss': 0.6931, 
@@ -131,16 +120,16 @@ for prompt in prompts:
 # 'rewards/rejected': Array(-4.33922e-05, dtype=bfloat16)} -- seems correct 
 
 
-{'step': 1, 'loss': 0.691, 
- 'logits/chosen': Array(7.3125, dtype=bfloat16), 
- 'logits/rejected': Array(8.9375, dtype=bfloat16), 
- 'logps/chosen': Array(-15.5625, dtype=bfloat16), 
- 'logps/rejected': Array(-14.25, dtype=bfloat16), 
+# {'step': 1, 'loss': 0.691, 
+#  'logits/chosen': Array(7.3125, dtype=bfloat16), 
+#  'logits/rejected': Array(8.9375, dtype=bfloat16), 
+#  'logps/chosen': Array(-15.5625, dtype=bfloat16), 
+#  'logps/rejected': Array(-14.25, dtype=bfloat16), 
  
- 'rewards/accuracies': Array(0.75, dtype=float32), 
- 'rewards/chosen': Array(0.00108337, dtype=bfloat16), 
- 'rewards/margins': Array(0.00112915, dtype=bfloat16), 
- 'rewards/rejected': Array(-4.33922e-05, dtype=bfloat16)}
+#  'rewards/accuracies': Array(0.75, dtype=float32), 
+#  'rewards/chosen': Array(0.00108337, dtype=bfloat16), 
+#  'rewards/margins': Array(0.00112915, dtype=bfloat16), 
+#  'rewards/rejected': Array(-4.33922e-05, dtype=bfloat16)}
 
 # {'step': 2, 'loss': 0.695, 'step_time': 25.87, 'epoch': 1, 'tokens_per_second_per_device': 39.6, 'tokens_per_second': 158.3, 'samples_per_second': 0.15, 'train_steps_per_second': 0.04, 'samples_seen': 8, 'logits/chosen': Array(-0.710938, dtype=bfloat16), 'logits/rejected': Array(-0.730469, dtype=bfloat16), 'logps/chosen': Array(-13.25, dtype=bfloat16), 'logps/rejected': Array(-13.4375, dtype=bfloat16), 'rewards/accuracies': Array(0.25, dtype=float32), 'rewards/chosen': Array(0.00646973, dtype=bfloat16), 'rewards/margins': Array(-0.00151825, dtype=bfloat16), 'rewards/rejected': Array(0.00799561, dtype=bfloat16)}
 # {'step': 4, 'loss': 0.68, 'step_time': 20.48, 'epoch': 1, 'tokens_per_second_per_device': 50.0, 'tokens_per_second': 200.0, 'samples_per_second': 0.2, 'train_steps_per_second': 0.05, 'samples_seen': 16, 'logits/chosen': Array(-1.39844, dtype=bfloat16), 'logits/rejected': Array(-1.17188, dtype=bfloat16), 'logps/chosen': Array(-15, dtype=bfloat16), 'logps/rejected': Array(-14.375, dtype=bfloat16), 'rewards/accuracies': Array(0.75, dtype=float32), 'rewards/chosen': Array(0.0252686, dtype=bfloat16), 'rewards/margins': Array(0.0256348, dtype=bfloat16), 'rewards/rejected': Array(-0.000318527, dtype=bfloat16)}
@@ -178,27 +167,27 @@ for prompt in prompts:
 # 'rewards/rejected': Array(-4.33922e-05, dtype=bfloat16)}
 
 
-    [  1841,    749,    692,   1154,    577,   7812, 235336,  22447,      1],
+#     [  1841,    749,    692,   1154,    577,   7812, 235336,  22447,      1],
 
-batch padding_mask [[1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0]
+# batch padding_mask [[1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0]
 
-got ref logits in  3.50750994682312 [-12.25 15.8125 -2.15625 -10 -2.375 -12.25 -12.25 -11.5625 -12.25 -11.1875]
+# got ref logits in  3.50750994682312 [-12.25 15.8125 -2.15625 -10 -2.375 -12.25 -12.25 -11.5625 -12.25 -11.1875]
 
-logits [-12.4375 15.75 -2.26562 -10.125 -2.5625 -12.4375 -12.375 -11.75 -12.4375
- -11.375]
-logits [-12.375 15.8125 -2.10938 -10.0625 -2.40625 -12.375 -12.3125 -11.625
+# logits [-12.4375 15.75 -2.26562 -10.125 -2.5625 -12.4375 -12.375 -11.75 -12.4375
+#  -11.375]
+# logits [-12.375 15.8125 -2.10938 -10.0625 -2.40625 -12.375 -12.3125 -11.625
         
         
-WENXIN model logits: tensor([-12.4375,  15.9375,  -2.1875, -10.0000,  -2.3125, -12.4375, -12.3750,
+# WENXIN model logits: tensor([-12.4375,  15.9375,  -2.1875, -10.0000,  -2.3125, -12.4375, -12.3750,
                              
                              
                              
-getting ref logits
-got ref logits in  17.971625804901123
-computing loss
-logits [-12.4375 15.75 -2.26562 -10.125 -2.5625 -12.4375 -12.375 -11.75 -12.4375
- -11.375]
-ref_logits [-12.625 15.5625 -2.375 -10.1875 -2.5 -12.5625 -12.5625 -11.8125 -12.625
- -11.5]
-updated model state in 1.0803875923156738
-got loss in  81.96569752693176
+# getting ref logits
+# got ref logits in  17.971625804901123
+# computing loss
+# logits [-12.4375 15.75 -2.26562 -10.125 -2.5625 -12.4375 -12.375 -11.75 -12.4375
+#  -11.375]
+# ref_logits [-12.625 15.5625 -2.375 -10.1875 -2.5 -12.5625 -12.5625 -11.8125 -12.625
+#  -11.5]
+# updated model state in 1.0803875923156738
+# got loss in  81.96569752693176
