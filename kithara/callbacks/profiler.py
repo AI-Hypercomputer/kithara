@@ -138,12 +138,12 @@ class Profiler(Callback):
                     "WARNING: library for nsys was not loaded \n" "profiler has no effect")
                 return
             # Popen() instead of run() for non-blocking behavior
-            if shutil.which("gsutil") is not None:
+            if shutil.which("gcloud") is not None:
                 subprocess.Popen(
-                    ["gsutil", "cp", "*nsys-rep", self.output_path])
+                    ["gcloud", "storage", "cp", "*nsys-rep", self.output_path])
             else:
                 print(
-                    "WARNING: gsutil is not installed or not found in the system's PATH. Skipping upload...")
+                    "WARNING: gcloud is not installed or not found in the system's PATH. Skipping upload...")
         elif self.mode == "xplane":
             jax.profiler.stop_trace()
         else: 
