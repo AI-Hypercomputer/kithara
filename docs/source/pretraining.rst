@@ -35,7 +35,7 @@ First things first, log into HuggingFace, set up the Keras backend to use JAX an
 
 Next, create a GCS bucket to store your checkpoints and logs::
 
-    gsutil mb gs://my-bucket
+    gcloud storage buckets create gs://my-bucket
 
 
 Step 1: Load Data 

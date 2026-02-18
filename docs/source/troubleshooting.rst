@@ -36,7 +36,7 @@ Otherwise, verify your current authentication:
 .. code-block:: bash
 
     gcloud auth list
-    gsutil ls gs://your_bucket
+    gcloud storage ls gs://your_bucket
 
 For your Python code, you likely need to ensure you're using the same credentials.
 
