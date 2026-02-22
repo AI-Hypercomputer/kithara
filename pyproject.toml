@@ -43,7 +43,7 @@ dependencies = [
         "google-cloud-monitoring",
         "omegaconf",
         # Jetstream dependencies
-        "setuptools==61.0",
+        "setuptools==78.1.1",
         "jaxtyping",
         "clu",
         "editdistance",
