@@ -49,7 +49,8 @@ dependencies = [
         "editdistance",
         "pyglove",
         "tensorflow_datasets",
-        "tfds-nightly" #"tfds-nightly==4.9.8.dev202503240044"
+        "tfds-nightly", #"tfds-nightly==4.9.8.dev202503240044"
+        "wandb"
 ]
 
 [project.optional-dependencies]
